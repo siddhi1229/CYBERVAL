@@ -1,0 +1,11 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+SQLAlchemy==2.0.48
+psycopg[binary]==3.2.13
+pydantic-settings==2.7.1
+alembic==1.14.0
+numpy==2.3.4
+pandas==2.3.3
+scipy==1.16.3
+scikit-learn==1.7.2
+PuLP==2.9.0
