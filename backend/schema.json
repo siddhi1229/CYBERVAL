@@ -1,0 +1,23 @@
+{
+  "nodeTypes": [
+    "User",
+    "Identity",
+    "Asset",
+    "Dependency",
+    "Vulnerability",
+    "Control",
+    "BusinessService",
+    "Threat"
+  ],
+  "edgeRelationships": [
+    "ASSUMES_IDENTITY",
+    "ACCESSES",
+    "CONNECTS_TO",
+    "HAS_DEPENDENCY",
+    "EXPOSED_TO",
+    "PROTECTS",
+    "ENFORCED_ON",
+    "POWERS_SERVICE",
+    "EXPLOITS"
+  ]
+}
