@@ -4,6 +4,13 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
+from app.adapters import (
+    AssetInventoryAdapter,
+    CSPMAdapter,
+    EDRAdapter,
+    IAMAdapter,
+    SIEMAdapter,
+)
 from app.database import Base, SessionLocal, engine
 from app.models import (
     Asset, BusinessService, Control, FrameworkControl, Investment, Risk,
@@ -11,8 +18,8 @@ from app.models import (
 )
 
 
-def seed(db: Session) -> None:
-    if db.query(Asset).first():
+def seed(db: Session, asset_count: int = 100, user_count: int = 35, siem_count: int = 120, edr_count: int = 60, cspm_count: int = 35) -> None:
+    if db.query(CveCatalogRecord).first():
         return
 
     # 1. Business Services (5 services)
