@@ -14,6 +14,7 @@ from app.models.entities import (
     UserAssetAccess,
     Vulnerability,
 )
+from app.models.risk_history import RiskHistory
 
 __all__ = [
     "Asset",
@@ -25,6 +26,7 @@ __all__ = [
     "FrameworkControl",
     "Investment",
     "Risk",
+    "RiskHistory",
     "SecurityEvent",
     "Threat",
     "User",

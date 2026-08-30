@@ -63,13 +63,36 @@ Asset Inventory ──────────────┤
 - `GET /api/assets/{asset_id}/dependencies`
 - `GET /api/assets/{asset_id}/attack-paths`
 - `GET /api/correlation/asset/{asset_id}`
-- `GET /api/risk/enterprise`
-- `GET /api/risk/assets`
+- `GET /api/risk/enterprise` — engine-backed by P2 (see section 5)
+- `GET /api/risk/assets` — engine-backed by P2 (see section 5)
 - `POST /api/ai/recommend`
 - `POST /api/ai/query`
 - `POST /api/simulation/run`
 - `POST /api/investments/optimize`
 - `GET /api/compliance`
+
+### 5. Cyber Risk Quantification Engine (P2)
+
+Consumes P1 PostgreSQL telemetry and returns financial cyber risk. Full model,
+formulas, assumptions and limitations: [`docs/risk-engine.md`](risk-engine.md).
+These routes are registered ahead of the P1 router and supersede P1's
+`/api/risk/enterprise` and `/api/risk/assets` stubs (P1 `routers.py` unchanged).
+
+- `POST /api/risk/calculate`: run the engine (optional `asset_ids`, `iterations`, `persist`, `config_overrides`). With `persist=true`, upserts the P1 `risks` row per asset and appends `risk_history` snapshots.
+- `GET /api/risk/assets`: financial risk for every asset (`min_score`, `business_service`, `department`, `limit`), sorted by Expected Annual Loss.
+- `GET /api/risk/assets/{asset_id}`: full breakdown — risk signals, likelihood, financial-impact components, Monte Carlo distribution, control evaluations, risk drivers.
+- `GET /api/risk/enterprise`: enterprise + per business-service + per-department risk, with VaR95 / VaR99.
+- `GET /api/risk/drivers`: top risk drivers (`scope=enterprise` | `high_risk_assets`).
+- `GET /api/risk/trends`: historical risk snapshots from `risk_history` (`scope`, `ref`, `limit`).
+
+Response fields per asset: `risk_score` (0–100 ordinal), `likelihood_score`
+(0–1 ordinal, **not** a probability), `annual_incident_probability` (0–1),
+`financial_impact` (INR), `expected_annual_loss` = probability × impact,
+`control_effectiveness` (0–1), `inherent`/`residual_expected_annual_loss`,
+`p95_loss` (= VaR95), `p99_loss` (= VaR99), `risk_drivers`.
+
+**Schema change (only one in P2):** new append-only `risk_history` table for
+trends. No P1 table or model is modified; created via `Base.metadata.create_all`.
 
 ---
 
