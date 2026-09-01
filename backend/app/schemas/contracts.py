@@ -353,7 +353,7 @@ class AssetDependencyRead(BaseModel):
 # Multi-Source Asset Correlation Schemas (P3)
 # ==========================================
 
-class AssetCorrelationRead(BaseModel):
+class DigitalTwinAssetCorrelationRead(BaseModel):
     asset_id: int
     asset_name: str
     asset_type: str
@@ -372,6 +372,9 @@ class AssetCorrelationRead(BaseModel):
     converged_risk_level: str = "medium"
     risk_factors: list[str] = Field(default_factory=list)
     graph_risk_score: float = 0.0
+
+
+GraphAssetCorrelationRead = DigitalTwinAssetCorrelationRead
 
 
 class RecommendationRequest(BaseModel):

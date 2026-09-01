@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-cv-bg text-cv-text antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Subtle enterprise scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #F1F3F5;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #CBD5E1;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #94A3B8;
+  }
+}
+
+/* ── Enterprise Card Surfaces ──────────────────────────────────── */
+.cv-card {
+  background: #FFFFFF;
+  border: 1px solid #E4E7EC;
+  box-shadow: 0 1px 3px 0 rgba(0,0,0,0.07), 0 1px 2px -1px rgba(0,0,0,0.05);
+  transition: box-shadow 0.15s ease;
+}
+
+.cv-card:hover {
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.08), 0 2px 4px -2px rgba(0,0,0,0.05);
+}
+
+/* Legacy alias — kept so existing JSX .cyber-card classes still work */
+.cyber-card {
+  background: #FFFFFF;
+  border: 1px solid #E4E7EC;
+  box-shadow: 0 1px 3px 0 rgba(0,0,0,0.07), 0 1px 2px -1px rgba(0,0,0,0.05);
+  transition: box-shadow 0.15s ease;
+}
+
+.cyber-card:hover {
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.08), 0 2px 4px -2px rgba(0,0,0,0.05);
+}
+
+.cyber-panel {
+  background: #FFFFFF;
+  border: 1px solid #E4E7EC;
+}
+
+.cyber-card-risk {
+  background: #FFFFFF;
+  border: 1px solid #FECACA;
+}
+
+.cyber-card-risk:hover {
+  border-color: #FCA5A5;
+}
+
+.cyber-card-secure {
+  background: #FFFFFF;
+  border: 1px solid #BBF7D0;
+}
+
+/* Subtle grid background pattern — very light */
+.cyber-grid-pattern {
+  background-image: none;
+}
+
+/* Removed: glow-cyan, glow-red, glow-emerald — replaced by standard text colors */
+
+/* Cytoscape container */
+#cy-container canvas {
+  left: 0 !important;
+  top: 0 !important;
+}
+
+/* ── Print Styles ────────────────────────────────────────────── */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  header, aside, .no-print {
+    display: none !important;
+  }
+  .cyber-card, .cyber-panel, .cv-card {
+    background: #ffffff !important;
+    border: 1px solid #cccccc !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+  }
+  * {
+    color: #000000 !important;
+    text-shadow: none !important;
+    box-shadow: none !important;
+  }
+}
