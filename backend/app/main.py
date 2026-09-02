@@ -11,7 +11,7 @@ if project_root not in sys.path:
 p5_backend = str(Path(__file__).resolve().parent.parent.parent / "cyberval_p5" / "backend")
 if p5_backend not in sys.path:
     sys.path.insert(0, p5_backend)
-
+from app.api.risk_routes import risk_router
 from app.api.routers import router
 from app.config import get_settings
 from app.database import check_db_health
@@ -27,6 +27,8 @@ except ImportError:
 settings = get_settings()
 app = FastAPI(title=settings.app_name, version="0.1.0", description="Shared platform foundation for CYBERVAL.")
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origin_list, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+# P2 risk-engine routes are registered first so they supersede P1's /api/risk/* stubs.
+app.include_router(risk_router)
 app.include_router(router)
 if p5_investment_router:
     app.include_router(p5_investment_router)
