@@ -308,24 +308,15 @@ def test_api_asset_attack_paths(client: TestClient):
 
 def test_api_correlation_payment_api_01(client: TestClient):
     resp = client.get("/api/digital-twin/correlation/PAYMENT-API-01")
-    if resp.status_code == 404:
-        resp = client.get("/api/correlation/asset/PAYMENT-API-01")
     assert resp.status_code == 200
     data = resp.json()
-    asset_name = data.get("asset_name") or data.get("asset", {}).get("name")
-    assert asset_name in ("PAYMENT-API-01", "Payment API")
-    if "converged_risk_level" in data:
-        assert data["converged_risk_level"] == "critical"
-        assert len(data["vulnerabilities"]) > 0
-        assert len(data["siem_events"]) > 0
-        assert len(data["edr_events"]) > 0
-        assert len(data["cspm_findings"]) > 0
-        assert len(data["risk_factors"]) >= 4
-    else:
-        assert len(data["vulnerabilities"]) > 0
-        assert len(data["security_events"]) > 0
-        assert len(data["edr_events"]) > 0
-        assert len(data["cspm_findings"]) > 0
+    assert data["asset_name"] in ("PAYMENT-API-01", "Payment API")
+    assert data["converged_risk_level"] == "critical"
+    assert len(data["vulnerabilities"]) > 0
+    assert len(data["siem_events"]) > 0
+    assert len(data["edr_events"]) > 0
+    assert len(data["cspm_findings"]) > 0
+    assert len(data["risk_factors"]) >= 4
 
 
 def test_api_p1_backward_compatibility(client: TestClient):
