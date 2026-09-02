@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
 from app.models import (
     Asset,
+    BusinessService,
     Control,
     CspmFinding,
     CveCatalogRecord,
@@ -24,15 +25,8 @@ from app.models import (
 from app.services.graph_service import CyberRiskDigitalTwin
 from app.services.ingestion import NormalizedIngestionService
 from app.schemas.contracts import (
-    AssetCorrelationRead, AssetDependencyRead, AssetRead, AttackPathRead,
-    ComplianceRead, ControlRead, CytoscapeGraphResponse, EnterpriseRiskRead,
-    OptimizationRead, OptimizationRequest, RecommendationRead, RecommendationRequest,
-    RiskRead, SimulationRead, SimulationRequest, ThreatRead, VulnerabilityRead,
-    IngestionRead, IngestionRequest,
-)
-from app.schemas.contracts import (
     AssetCorrelationRead,
-    AssetTelemetryCorrelationRead,
+    AssetDependencyRead,
     AssetRead,
     AssetVulnerabilityAssociationRequest,
     AttackPathRead,
@@ -42,6 +36,8 @@ from app.schemas.contracts import (
     CveCatalogRecordRead,
     CveCatalogSyncRead,
     CveCatalogSyncRequest,
+    CytoscapeGraphResponse,
+    DigitalTwinAssetCorrelationRead,
     EdrEventRead,
     EnterpriseRiskRead,
     EnterpriseSyncRead,
@@ -669,8 +665,8 @@ def get_asset_attack_paths(asset_id: int, db: Session = Depends(get_db)):
     return filtered
 
 
-@router.get("/correlation/asset/{asset_id}", response_model=AssetTelemetryCorrelationRead, summary="Get multi-source telemetry convergence for an asset")
-def correlate_asset(asset_id: str, db: Session = Depends(get_db)):
+@router.get("/digital-twin/correlation/{asset_id}", response_model=DigitalTwinAssetCorrelationRead, summary="Get multi-source telemetry convergence for an asset")
+def correlate_asset_digital_twin(asset_id: str, db: Session = Depends(get_db)):
     digital_twin = CyberRiskDigitalTwin(db)
     result = digital_twin.correlate_asset_sources(asset_id)
     if not result:
