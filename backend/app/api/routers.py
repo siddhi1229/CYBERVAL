@@ -6,7 +6,21 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
-from app.models import Asset, Control, FrameworkControl, Investment, Risk, Threat, Vulnerability
+from app.models import (
+    Asset,
+    Control,
+    CspmFinding,
+    CveCatalogRecord,
+    EdrEvent,
+    FrameworkControl,
+    Investment,
+    Risk,
+    SecurityEvent,
+    Threat,
+    User,
+    UserAssetAccess,
+    Vulnerability,
+)
 from app.services.graph_service import CyberRiskDigitalTwin
 from app.services.ingestion import NormalizedIngestionService
 from app.schemas.contracts import (
