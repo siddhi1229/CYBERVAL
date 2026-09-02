@@ -24,7 +24,7 @@ export const copilotApi = {
             { label: "Top Threat Vector", value: "Log4Shell + Credential Dumping", badge: "Active T1003" },
             { label: "Optimized ROSI", value: "623.5%", badge: "P5 Knapsack" }
           ],
-          recommendedAction: "Deploy CTRL-MFA-001 (Hardware MFA) and CTRL-PATCH-002 (Patch CVE-2024-21762) to reduce financial exposure by ₹6.15 Cr with an aggregate ROSI of 623.5%.",
+          recommendedAction: "Deploy INV-001 (Privileged Access MFA) and INV-002 (Critical Patching Sprint) to optimize financial risk reduction with maximum portfolio ROSI.",
           deepLinks: [
             { label: "Executive Dashboard", path: "/executive" },
             { label: "Simulate Controls in What-If", path: "/simulation" },

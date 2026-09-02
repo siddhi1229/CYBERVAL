@@ -42,14 +42,26 @@ export default function InvestmentPage() {
   const { formatCurrency, refreshKey } = useTelemetry();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [budgetSlider, setBudgetSlider] = useState(1.3);
+  const [budgetSlider, setBudgetSlider] = useState(0.5);
+  const [optResult, setOptResult] = useState(null);
 
   useEffect(() => {
     async function loadInvestment() {
       try {
         setLoading(true);
-        const result = await investmentApi.getOverview();
+        const result = await investmentApi.getOverview(budgetSlider);
         setData(result);
+        if (result && result.selectedControls) {
+          setOptResult({
+            total_budget: result.totalBudget * 10000000,
+            total_investment: result.allocatedBudget * 10000000,
+            total_risk_reduction: result.totalRiskReduction * 10000000,
+            residual_enterprise_eal: result.residualEal * 10000000,
+            portfolio_rosi_percentage: result.portfolioRosi,
+            selected_controls: result.selectedControls,
+            unselected_controls: result.unselectedControls,
+          });
+        }
       } catch (err) {
         console.error('Failed to load investment telemetry:', err);
       } finally {
@@ -59,11 +71,49 @@ export default function InvestmentPage() {
     loadInvestment();
   }, [refreshKey]);
 
-  if (loading) return <LoadingSpinner text="Calculating optimal security investment..." />;
+  useEffect(() => {
+    let isMounted = true;
+    const timer = setTimeout(async () => {
+      try {
+        const opt = await investmentApi.optimizeBudget(budgetSlider);
+        if (isMounted && opt) {
+          setOptResult(opt);
+        }
+      } catch (err) {
+        console.warn('Live optimization call failed:', err);
+      }
+    }, 200);
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
+  }, [budgetSlider]);
 
-  const dynamicReduction = Math.min(9.4, Number((budgetSlider * 4.2).toFixed(1)));
-  const dynamicRosi = budgetSlider > 0 ? Number((((dynamicReduction - budgetSlider) / budgetSlider) * 100).toFixed(0)) : 0;
-  const dynamicEal = Math.max(9.0, Number((18.4 - dynamicReduction).toFixed(1)));
+  if (loading || !data) return <LoadingSpinner text="Calculating optimal security investment..." />;
+
+  const baselineEal = data.baselineEal || 54.69;
+  const dynamicInvestment = optResult 
+    ? Number((optResult.total_investment / 10000000).toFixed(2)) 
+    : data.allocatedBudget;
+  const dynamicReduction = optResult 
+    ? Number((optResult.total_risk_reduction / 10000000).toFixed(2)) 
+    : data.totalRiskReduction;
+  const dynamicRosi = optResult 
+    ? Math.round(optResult.portfolio_rosi_percentage ?? data.portfolioRosi) 
+    : data.portfolioRosi;
+  const dynamicEal = optResult 
+    ? Number((optResult.residual_enterprise_eal / 10000000).toFixed(2)) 
+    : data.residualEal;
+
+  const initiativesToDisplay = (data.recommendedInitiatives || data.topCandidateControls || []).map((init) => {
+    const isSelected = optResult && optResult.selected_controls
+      ? optResult.selected_controls.some((sc) => sc.id === init.id)
+      : init.status === 'APPROVED_FOR_BUDGET';
+    return {
+      ...init,
+      status: isSelected ? 'APPROVED_FOR_BUDGET' : 'UNDER_REVIEW',
+    };
+  });
 
   return (
     <div className="space-y-6">
@@ -89,7 +139,7 @@ export default function InvestmentPage() {
 
         <div className="flex items-center space-x-3 font-mono text-xs">
           <div className="px-3.5 py-2 rounded-lg bg-cv-bg border border-cv-border text-cv-text">
-            PORTFOLIO RETURN: <strong className="text-cv-success">{data.portfolioRosi}%</strong>
+            PORTFOLIO RETURN: <strong className="text-cv-success">{dynamicRosi}%</strong>
           </div>
         </div>
       </div>
@@ -100,15 +150,15 @@ export default function InvestmentPage() {
         <MetricCard
           title="Security Budget"
           explanation="Total budget available for security improvements"
-          value={formatCurrency(data.totalBudget)}
-          subtitle={`Allocated: ${formatCurrency(budgetSlider)} (${((budgetSlider/data.totalBudget)*100).toFixed(0)}%)`}
+          value={formatCurrency(budgetSlider)}
+          subtitle={`Allocated: ${formatCurrency(dynamicInvestment)} (${budgetSlider > 0 ? ((dynamicInvestment/budgetSlider)*100).toFixed(0) : 0}%)`}
           icon={DollarSign}
           variant="cyan"
         >
           <div className="w-full bg-cv-bg border border-cv-border rounded-full h-1.5 overflow-hidden mt-2">
             <div
               className="bg-cv-blue h-full transition-all duration-300"
-              style={{ width: `${(budgetSlider / data.totalBudget) * 100}%` }}
+              style={{ width: `${Math.min(100, budgetSlider > 0 ? (dynamicInvestment / budgetSlider) * 100 : 0)}%` }}
             />
           </div>
         </MetricCard>
@@ -117,7 +167,7 @@ export default function InvestmentPage() {
           title="Risk We Can Reduce"
           explanation="How much financial loss we can avoid with this budget"
           value={formatCurrency(dynamicReduction)}
-          subtitle={`Yearly loss drops: ${formatCurrency(18.4)} → ${formatCurrency(dynamicEal)}`}
+          subtitle={`Yearly loss drops: ${formatCurrency(baselineEal)} → ${formatCurrency(dynamicEal)}`}
           delta={dynamicReduction}
           deltaType="positive_is_good"
           icon={TrendingUp}
@@ -142,9 +192,9 @@ export default function InvestmentPage() {
         <MetricCard
           title="Risk Score Impact"
           explanation="How the overall risk score improves after investment"
-          value={`${data.currentRiskScore} → ${Math.round(data.currentRiskScore - dynamicReduction * 4.2)}`}
+          value={`${data.currentRiskScore} → ${Math.max(15, Math.round(data.currentRiskScore - (dynamicReduction / (baselineEal || 10)) * 40))}`}
           unit="pts"
-          subtitle={`-${Math.round(dynamicReduction * 4.2)} point improvement`}
+          subtitle={`-${Math.round((dynamicReduction / (baselineEal || 10)) * 40)} point improvement`}
           icon={ShieldCheck}
           variant="warning"
           badge="AFTER INVESTMENT"
@@ -252,26 +302,30 @@ export default function InvestmentPage() {
             <div className="p-3 rounded-lg bg-cv-bg border border-cv-border space-y-2">
               <div className="flex justify-between text-cv-muted">
                 <span>Current EAL Exposure:</span>
-                <strong className="text-cv-danger">₹18.4 Cr</strong>
+                <strong className="text-cv-danger">{formatCurrency(baselineEal)}</strong>
               </div>
               <div className="flex justify-between text-cv-muted">
                 <span>Simulated EAL with ₹{budgetSlider}Cr:</span>
-                <strong className="text-cv-success">₹{dynamicEal} Cr</strong>
+                <strong className="text-cv-success">{formatCurrency(dynamicEal)}</strong>
               </div>
               <div className="flex justify-between text-cv-muted border-t border-cv-border pt-1">
                 <span>Net Annual Value Saved:</span>
-                <strong className="text-cv-blue">₹{dynamicReduction} Cr / yr</strong>
+                <strong className="text-cv-blue">{formatCurrency(dynamicReduction)} / yr</strong>
               </div>
             </div>
 
             <div className="p-3 rounded-lg bg-cv-bg border border-cv-border space-y-2">
               <div className="flex justify-between text-cv-muted">
                 <span>Payback Duration:</span>
-                <strong className="text-cv-warning">~2.4 Months</strong>
+                <strong className="text-cv-warning">
+                  {dynamicReduction > 0 ? `~${((dynamicInvestment / dynamicReduction) * 12).toFixed(1)} Months` : '—'}
+                </strong>
               </div>
               <div className="flex justify-between text-cv-muted">
                 <span>3-Year Cumulative Benefit:</span>
-                <strong className="text-cv-success">₹{(dynamicReduction * 3 - budgetSlider).toFixed(1)} Cr</strong>
+                <strong className="text-cv-success">
+                  {formatCurrency(Math.max(0, dynamicReduction * 3 - dynamicInvestment))}
+                </strong>
               </div>
             </div>
           </div>
@@ -312,7 +366,7 @@ export default function InvestmentPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-cv-border">
-              {data.recommendedInitiatives.map((init) => (
+              {initiativesToDisplay.map((init) => (
                 <tr key={init.id} className="hover:bg-cv-bg transition-colors">
                   <td className="py-3 px-3">
                     <div className="flex items-center space-x-2">
