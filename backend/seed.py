@@ -13,7 +13,7 @@ from app.adapters import (
 )
 from app.database import Base, SessionLocal, engine
 from app.models import (
-    Asset, BusinessService, Control, FrameworkControl, Investment, Risk,
+    Asset, BusinessService, Control, CveCatalogRecord, FrameworkControl, Investment, Risk,
     SecurityEvent, Threat, User, Vulnerability,
 )
 
