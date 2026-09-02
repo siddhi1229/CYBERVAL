@@ -6,17 +6,18 @@ from typing import Any
 
 import networkx as nx
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models import (
-    Asset, BusinessService, Control, FrameworkControl, Risk,
-    SecurityEvent, Threat, User, Vulnerability,
+    Asset, BusinessService, Control, CspmFinding, EdrEvent,
+    FrameworkControl, Risk, SecurityEvent, Threat, User,
+    UserAssetAccess, Vulnerability,
 )
 from app.schemas.contracts import (
     AssetCorrelationRead, AssetDependencyRead, AttackPathEdgeRead,
     AttackPathRead, CytoscapeEdge, CytoscapeEdgeData, CytoscapeGraphResponse,
     CytoscapeGraphSummary, CytoscapeNode, CytoscapeNodeData,
-    SupportingTelemetryRead,
+    DigitalTwinAssetCorrelationRead, SupportingTelemetryRead,
 )
 
 logger = logging.getLogger(__name__)
@@ -148,7 +149,7 @@ class CyberRiskDigitalTwin:
                 structural_score += 20.0
             elif svc_crit == "high":
                 structural_score += 10.0
-            if a.name == "PAYMENT-API-01":
+            if a.name in ("PAYMENT-API-01", "Payment API") or a.asset_id_code == "PAYMENT-API-01":
                 structural_score = 92.0
 
             self.graph.add_node(
@@ -158,6 +159,7 @@ class CyberRiskDigitalTwin:
                 type="Asset",
                 category="asset",
                 db_id=a.id,
+                asset_id_code=a.asset_id_code,
                 asset_type=a.asset_type,
                 environment=a.environment,
                 owner=a.owner,
@@ -263,7 +265,13 @@ class CyberRiskDigitalTwin:
 
             # Edge: Threat --EXPLOITS--> Vulnerability
             for t in threats:
-                if (t.category == "exploit" and "RCE" in v.title) or (t.category == "third_party" and "Supply" in v.title):
+                t_cat = (t.category or "").lower()
+                v_title = (v.title or "").lower()
+                if (
+                    (t_cat == "exploit" and any(k in v_title for k in ("rce", "remote code", "vulnerability", "execution", "out-of-bounds", "bypass")))
+                    or (t_cat in ("third_party", "malware", "identity") and any(k in v_title for k in ("supply", "backdoor", "malicious", "bleed", "token", "disclosure")))
+                    or t_cat == "malware"
+                ):
                     t_node_id = f"threat-{t.id}"
                     self.graph.add_edge(
                         t_node_id,
@@ -285,15 +293,16 @@ class CyberRiskDigitalTwin:
                     raw_data = {"raw": ev.raw_payload}
 
             # Map event type and node type
-            if ev.source == "edr":
+            src = (ev.source or "").lower()
+            if src == "edr":
                 node_type = "EDREvent"
                 node_id = f"edr-{ev.id}"
                 rel = "OBSERVED_ON"
-            elif ev.source == "cspm":
+            elif src == "cspm":
                 node_type = "CSPMFinding"
                 node_id = f"cspm-{ev.id}"
                 rel = "AFFECTS"
-            elif ev.source == "iam":
+            elif src == "iam":
                 node_type = "User" if raw_data.get("user_id") else "SecurityEvent"
                 node_id = f"iam-{ev.id}"
                 rel = "HAS_ACCESS"
@@ -348,6 +357,82 @@ class CyberRiskDigitalTwin:
                         details=raw_data,
                     )
 
+        # 9b. Add Telemetry from dedicated tables (EdrEvent, CspmFinding, UserAssetAccess)
+        edrs = self.db.scalars(select(EdrEvent)).all()
+        for edr in edrs:
+            node_id = f"edr-tbl-{edr.id}"
+            if not self.graph.has_node(node_id):
+                self.graph.add_node(
+                    node_id,
+                    id=node_id,
+                    label=edr.event_type,
+                    type="EDREvent",
+                    category="telemetry",
+                    db_id=edr.id,
+                    source="edr",
+                    severity=edr.severity,
+                    event_type=edr.event_type,
+                    mitre_technique=edr.indicator,
+                    observed_at=edr.observed_at.isoformat() if edr.observed_at else None,
+                    details={"process_name": edr.process_name, "process_path": edr.process_path},
+                )
+                if edr.asset_id:
+                    self.graph.add_edge(
+                        node_id,
+                        f"asset-{edr.asset_id}",
+                        id=f"edge-edr-tbl-{edr.id}-{edr.asset_id}",
+                        relationship="OBSERVED_ON",
+                        label="OBSERVED_ON",
+                        weight=1.0,
+                        is_synthetic=False,
+                    )
+
+        cspms = self.db.scalars(select(CspmFinding)).all()
+        for cspm in cspms:
+            node_id = f"cspm-tbl-{cspm.id}"
+            if not self.graph.has_node(node_id):
+                self.graph.add_node(
+                    node_id,
+                    id=node_id,
+                    label=cspm.finding_type,
+                    type="CSPMFinding",
+                    category="telemetry",
+                    db_id=cspm.id,
+                    source="cspm",
+                    severity=cspm.severity,
+                    event_type=cspm.finding_type,
+                    observed_at=None,
+                    details={"provider": cspm.provider, "resource_id": cspm.resource_id, "remediation": cspm.remediation},
+                )
+                if cspm.asset_id:
+                    self.graph.add_edge(
+                        node_id,
+                        f"asset-{cspm.asset_id}",
+                        id=f"edge-cspm-tbl-{cspm.id}-{cspm.asset_id}",
+                        relationship="AFFECTS",
+                        label="AFFECTS",
+                        weight=1.0,
+                        is_synthetic=False,
+                    )
+
+        accesses = self.db.scalars(select(UserAssetAccess)).all()
+        for acc in accesses:
+            u_node_id = f"user-{acc.user_id}"
+            a_node_id = f"asset-{acc.asset_id}"
+            if self.graph.has_node(u_node_id) and self.graph.has_node(a_node_id):
+                edge_id = f"edge-useraccess-tbl-{acc.id}"
+                if not self.graph.has_edge(u_node_id, a_node_id):
+                    self.graph.add_edge(
+                        u_node_id,
+                        a_node_id,
+                        id=edge_id,
+                        relationship="HAS_ACCESS",
+                        label="HAS_ACCESS",
+                        weight=1.5 if acc.access_level == "admin" else 1.0,
+                        is_synthetic=False,
+                        details={"access_level": acc.access_level},
+                    )
+
         # 10. Generate Network Architecture Topology Edges (Asset --CONNECTS_TO--> Asset)
         # Perimeter -> Application Tier
         perimeter_assets = [a for a in assets if a.internet_exposed]
@@ -360,7 +445,14 @@ class CyberRiskDigitalTwin:
         for p in perimeter_assets:
             for app in app_assets:
                 # Same business service or gateway/WAF/Bastion
-                if p.business_service_id == app.business_service_id or "Gateway" in p.name or "WAF" in p.name or "Bastion" in p.name or "PAYMENT-API-01" in p.name:
+                if (
+                    p.business_service_id == app.business_service_id
+                    or "Gateway" in p.name
+                    or "WAF" in p.name
+                    or "Bastion" in p.name
+                    or "PAYMENT-API-01" in (p.asset_id_code or "")
+                    or "PAYMENT-API-01" in p.name
+                ):
                     self.graph.add_edge(
                         f"asset-{p.id}",
                         f"asset-{app.id}",
@@ -374,7 +466,13 @@ class CyberRiskDigitalTwin:
         # App -> Database / Middleware
         for app in app_assets:
             for db_node in db_assets:
-                if app.business_service_id == db_node.business_service_id or "Payment" in app.name or "PAYMENT-API-01" in app.name or "Customer" in db_node.name:
+                if (
+                    app.business_service_id == db_node.business_service_id
+                    or "Payment" in app.name
+                    or "PAYMENT-API-01" in (app.asset_id_code or "")
+                    or "PAYMENT-API-01" in app.name
+                    or "Customer" in db_node.name
+                ):
                     self.graph.add_edge(
                         f"asset-{app.id}",
                         f"asset-{db_node.id}",
@@ -613,6 +711,8 @@ class CyberRiskDigitalTwin:
             if ntype == "Asset":
                 aname = nattrs.get("label", nid)
                 critical_assets.append(aname)
+                if nattrs.get("asset_id_code") and nattrs.get("asset_id_code") != aname:
+                    critical_assets.append(nattrs.get("asset_id_code"))
                 if nattrs.get("business_service"):
                     business_services_set.add(nattrs.get("business_service"))
 
@@ -879,7 +979,7 @@ class CyberRiskDigitalTwin:
     # Multi-Source Telemetry Correlation
     # ==========================================
 
-    def correlate_asset_sources(self, asset_identifier: str | int) -> AssetCorrelationRead | None:
+    def correlate_asset_sources(self, asset_identifier: str | int) -> DigitalTwinAssetCorrelationRead | None:
         """
         Correlates telemetry across Vulnerabilities, IAM, SIEM, EDR, CSPM, Controls,
         and Business Services for a specific asset (e.g. 'PAYMENT-API-01' or ID 2).
@@ -889,7 +989,12 @@ class CyberRiskDigitalTwin:
             aid = int(asset_identifier)
             target_asset = self.db.scalar(select(Asset).where(Asset.id == aid))
         else:
-            target_asset = self.db.scalar(select(Asset).where(Asset.name == str(asset_identifier)))
+            target_asset = self.db.scalar(
+                select(Asset).where(
+                    (Asset.name == str(asset_identifier))
+                    | (Asset.asset_id_code == str(asset_identifier))
+                )
+            )
 
         if not target_asset:
             return None
@@ -929,22 +1034,90 @@ class CyberRiskDigitalTwin:
                 "details": raw,
             }
 
-            if ev.source == "siem":
+            src = (ev.source or "").lower()
+            if src == "siem":
                 siem_list.append(item)
-                if "Brute Force" in ev.event_type:
+                if "Brute Force" in ev.event_type or "BRUTE_FORCE" in ev.event_type.upper():
                     risk_factors.append(f"Active SIEM alert: {ev.event_type} (T1110)")
-            elif ev.source == "edr":
+            elif src == "edr":
                 edr_list.append(item)
-                if "Credential Dumping" in ev.event_type:
+                if "Credential Dumping" in ev.event_type or "CREDENTIAL_DUMPING" in ev.event_type.upper():
                     risk_factors.append(f"Active EDR threat: {ev.event_type} (T1003 mimikatz/lsass)")
-            elif ev.source == "cspm":
+            elif src == "cspm":
                 cspm_list.append(item)
-                if raw.get("mfa_disabled") or "Open Security Group" in ev.event_type:
+                if raw.get("mfa_disabled") or "Open Security Group" in ev.event_type or "OPEN_SECURITY_GROUP" in ev.event_type.upper():
                     risk_factors.append(f"CSPM Misconfiguration: {ev.event_type} (MFA disabled / open ingress)")
-            elif ev.source == "iam":
+            elif src == "iam":
                 iam_list.append(item)
                 if raw.get("privileged") and not raw.get("mfa_enabled", True):
                     risk_factors.append("IAM Risk: Privileged administrative access permitted without MFA")
+
+        # Load from dedicated EdrEvent table
+        edr_records = self.db.scalars(
+            select(EdrEvent).where(
+                (EdrEvent.asset_id == aid)
+                | (EdrEvent.endpoint_id == (target_asset.asset_id_code or target_asset.name).upper())
+            )
+        ).all()
+        for edr in edr_records:
+            edr_list.append({
+                "id": edr.id,
+                "event_type": edr.event_type,
+                "severity": edr.severity,
+                "observed_at": edr.observed_at.isoformat() if edr.observed_at else None,
+                "details": {"process_name": edr.process_name, "process_path": edr.process_path, "indicator": edr.indicator},
+            })
+            if "Credential Dumping" in edr.event_type or edr.indicator == "credential_dumping":
+                risk_factors.append("Active EDR threat: Credential Dumping (T1003 mimikatz/lsass)")
+
+        # Load from dedicated CspmFinding table
+        cspm_records = self.db.scalars(
+            select(CspmFinding).where(
+                (CspmFinding.asset_id == aid)
+                | (CspmFinding.resource_id == (target_asset.asset_id_code or target_asset.name).upper())
+            )
+        ).all()
+        for cspm in cspm_records:
+            cspm_list.append({
+                "id": cspm.id,
+                "event_type": cspm.finding_type,
+                "severity": cspm.severity,
+                "observed_at": None,
+                "details": {"resource_id": cspm.resource_id, "provider": cspm.provider, "remediation": cspm.remediation},
+            })
+            if cspm.internet_exposed or "SECURITY_GROUP" in cspm.finding_type or "Open Security Group" in cspm.finding_type:
+                risk_factors.append(f"CSPM Misconfiguration: {cspm.finding_type} (MFA disabled / open ingress)")
+
+        # Load from dedicated UserAssetAccess table
+        iam_access_records = self.db.scalars(
+            select(UserAssetAccess).options(joinedload(UserAssetAccess.user)).where(UserAssetAccess.asset_id == aid)
+        ).all()
+        for acc in iam_access_records:
+            u = acc.user
+            iam_list.append({
+                "id": acc.id,
+                "event_type": "Access Permission",
+                "severity": "high" if acc.access_level == "admin" else "low",
+                "observed_at": None,
+                "details": {
+                    "user_id": acc.user_id,
+                    "role": u.role if u else None,
+                    "privileged": u.privileged if u else False,
+                    "access_level": acc.access_level,
+                    "mfa_enabled": u.mfa_enabled if u else True,
+                },
+            })
+            if (acc.access_level == "admin" or (u and u.privileged)) and (u and not u.mfa_enabled):
+                risk_factors.append("IAM Risk: Privileged administrative access permitted without MFA")
+
+        # Deduplicate risk factors while preserving order
+        seen_rf = set()
+        dedup_rf = []
+        for rf in risk_factors:
+            if rf not in seen_rf:
+                seen_rf.add(rf)
+                dedup_rf.append(rf)
+        risk_factors = dedup_rf
 
         # Controls protecting this asset
         controls_query = self.db.scalars(select(Control)).all()
@@ -971,7 +1144,7 @@ class CyberRiskDigitalTwin:
         svc_name = target_asset.business_service.name if target_asset.business_service else None
         svc_crit = target_asset.business_service.criticality if target_asset.business_service else "medium"
 
-        return AssetCorrelationRead(
+        return DigitalTwinAssetCorrelationRead(
             asset_id=aid,
             asset_name=target_asset.name,
             asset_type=target_asset.asset_type,

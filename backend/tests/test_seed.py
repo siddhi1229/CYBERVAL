@@ -34,16 +34,14 @@ def test_seed_execution_and_risk_signals():
     vulns = session.query(Vulnerability).all()
     assert len(vulns) == 4
 
-    gw_cve = session.query(Vulnerability).filter_by(cve_id="CVE-2024-21762").one()
-    gw_asset = gw_cve.asset
-    assert gw_asset is not None
-    assert gw_asset.name == "Internet Gateway"
+    gw_asset = session.query(Asset).filter_by(name="Internet Gateway").one()
+    gw_cve = session.query(Vulnerability).filter_by(cve_id="CVE-2024-21762", asset_id=gw_asset.id).one()
     assert gw_asset.internet_exposed is True
     assert gw_cve.known_exploited is True
     assert gw_cve.composite_risk_priority == "CRITICAL_EXPLOITED_EXPOSED"
 
-    payment_xz = session.query(Vulnerability).filter_by(cve_id="CVE-2024-3094").one()
-    assert payment_xz.asset.name == "Payment API"
+    pay_asset = session.query(Asset).filter_by(name="Payment API").one()
+    payment_xz = session.query(Vulnerability).filter_by(cve_id="CVE-2024-3094", asset_id=pay_asset.id).one()
     assert payment_xz.composite_risk_priority == "HIGH_EXPOSED_CRITICAL"
 
     session.close()
