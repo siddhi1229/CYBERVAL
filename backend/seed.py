@@ -13,8 +13,8 @@ from app.adapters import (
 )
 from app.database import Base, SessionLocal, engine
 from app.models import (
-    Asset, BusinessService, Control, CveCatalogRecord, FrameworkControl, Investment, Risk,
-    SecurityEvent, Threat, User, Vulnerability,
+    Asset, BusinessService, Control, CspmFinding, CveCatalogRecord, EdrEvent, FrameworkControl,
+    Investment, Risk, SecurityEvent, Threat, User, UserAssetAccess, Vulnerability,
 )
 
 
@@ -113,7 +113,7 @@ def seed(db: Session, asset_count: int = 100, user_count: int = 35, siem_count: 
 
     # Priority Named Assets (including PAYMENT-API-01 and core infrastructure)
     gateway = Asset(name="Internet Gateway", asset_type="network", environment="production", owner="Platform", internet_exposed=True, business_service=payment_svc)
-    payment_api = Asset(name="PAYMENT-API-01", asset_type="application", environment="production", owner="Payments", internet_exposed=True, business_service=payment_svc)
+    payment_api = Asset(name="PAYMENT-API-01", asset_id_code="PAYMENT-API-01", asset_type="application", environment="production", owner="Payments", criticality="CRITICAL", business_value=Decimal("48000000.00"), internet_exposed=True, business_service=payment_svc)
     customer_db = Asset(name="Customer Database", asset_type="database", environment="production", owner="Data Office", internet_exposed=False, business_service=customer_svc)
     core_banking = Asset(name="Core Banking Server", asset_type="server", environment="production", owner="Banking Operations", internet_exposed=False, business_service=banking_svc)
     auth_service = Asset(name="AUTH-SERVICE-01", asset_type="application", environment="production", owner="SecOps & IAM", internet_exposed=True, business_service=identity_svc)
@@ -166,9 +166,45 @@ def seed(db: Session, asset_count: int = 100, user_count: int = 35, siem_count: 
     db.flush()
 
     # 6. Vulnerabilities (5 Key CVEs distributed across assets)
+    # CVE-2024-21762 is a confirmed CISA KEV entry (added 2024-02-09); PAYMENT-API-01's
+    # copy carries the known_exploited/KEV fields so P2 signal extraction reflects it.
+    payment_api_kev_vuln = Vulnerability(
+        cve_id="CVE-2024-21762",
+        title="Fortinet FortiOS Out-of-Bound Write Remote Code Execution",
+        cvss_score=Decimal("9.8"),
+        severity="critical",
+        status="open",
+        known_exploited=True,
+        kev_date_added=datetime(2024, 2, 9, tzinfo=UTC),
+        kev_due_date=datetime(2024, 2, 16, tzinfo=UTC),
+        affected_product="FortiOS, FortiProxy",
+        cwe_id="CWE-787",
+        required_action="Apply mitigations per vendor instructions or discontinue use of the product if mitigations are unavailable.",
+        sources="NVD,CISA_KEV",
+        asset=payment_api,
+    )
+    payment_api_log4shell_vuln = Vulnerability(
+        cve_id="CVE-2021-44228",
+        title="Apache Log4j2 JNDI Remote Code Execution (Log4Shell)",
+        description="Apache Log4j2 JNDI features do not protect against attacker-controlled LDAP and other JNDI related endpoints, allowing remote code execution via log message formatting.",
+        cvss_score=Decimal("10.0"),
+        severity="critical",
+        status="open",
+        known_exploited=True,
+        kev_date_added=datetime(2021, 12, 10, tzinfo=UTC),
+        kev_due_date=datetime(2021, 12, 24, tzinfo=UTC),
+        known_ransomware_use=True,
+        affected_product="Log4j",
+        cwe_id="CWE-502, CWE-400",
+        required_action="Upgrade to Log4j 2.15.0+ or apply log4j2.formatMsgNoLookups mitigation.",
+        sources="NVD,CISA_KEV",
+        asset=payment_api,
+    )
     vulnerabilities = [
         # CVE-2024-21762 on PAYMENT-API-01 and Internet Gateway (Perimeter / RCE)
-        Vulnerability(cve_id="CVE-2024-21762", title="Fortinet FortiOS Out-of-Bound Write Remote Code Execution", cvss_score=Decimal("9.8"), severity="critical", status="open", asset=payment_api),
+        payment_api_kev_vuln,
+        # CVE-2021-44228 (Log4Shell) also lands on PAYMENT-API-01 for the multi-CVE correlation scenario
+        payment_api_log4shell_vuln,
         Vulnerability(cve_id="CVE-2024-21762", title="Fortinet FortiOS Out-of-Bound Write Remote Code Execution", cvss_score=Decimal("9.8"), severity="critical", status="open", asset=gateway),
         # CVE-2024-3094 Supply chain compromise on auth service and app services
         Vulnerability(cve_id="CVE-2024-3094", title="XZ Utils Liblzma Backdoor Supply-chain Compromise", cvss_score=Decimal("10.0"), severity="critical", status="open", asset=auth_service),
@@ -182,6 +218,83 @@ def seed(db: Session, asset_count: int = 100, user_count: int = 35, siem_count: 
         Vulnerability(cve_id="CVE-2023-44487", title="HTTP/2 Rapid Reset Denial of Service", cvss_score=Decimal("7.5"), severity="high", status="open", asset=waf_prod),
     ]
     db.add_all(vulnerabilities)
+    db.flush()
+
+    # 6b. Normalized CVE Intelligence Catalog (NVD + CISA KEV correlated), one
+    # entry per unique CVE already attached to an asset above. Populates the
+    # P1 CveCatalogRecord table that P2/P3 correlation endpoints read from.
+    cve_catalog_items = [
+        CveCatalogRecord(
+            cve_id="CVE-2024-21762",
+            title=payment_api_kev_vuln.title,
+            cvss_score=payment_api_kev_vuln.cvss_score,
+            severity=payment_api_kev_vuln.severity.upper(),
+            known_exploited=True,
+            kev_date_added=payment_api_kev_vuln.kev_date_added,
+            kev_due_date=payment_api_kev_vuln.kev_due_date,
+            affected_vendor="Fortinet",
+            affected_product=payment_api_kev_vuln.affected_product,
+            cwe_ids=payment_api_kev_vuln.cwe_id,
+            required_action=payment_api_kev_vuln.required_action,
+            sources=payment_api_kev_vuln.sources,
+        ),
+        CveCatalogRecord(
+            cve_id="CVE-2024-3094",
+            title="XZ Utils Liblzma Backdoor Supply-chain Compromise",
+            cvss_score=Decimal("10.0"),
+            severity="CRITICAL",
+            known_exploited=False,
+            affected_vendor="Tukaani",
+            affected_product="XZ Utils, liblzma",
+            cwe_ids="CWE-506",
+            required_action="Downgrade xz-utils to uncompromised versions (5.4.x) immediately.",
+            sources="NVD",
+        ),
+        CveCatalogRecord(
+            cve_id="CVE-2023-38606",
+            title="Kernel Privilege Escalation Vulnerability",
+            cvss_score=Decimal("9.8"),
+            severity="CRITICAL",
+            # Confirmed CISA KEV entry (Apple state-modification vulnerability, added 2023-07-26).
+            known_exploited=True,
+            kev_date_added=datetime(2023, 7, 26, tzinfo=UTC),
+            kev_due_date=datetime(2023, 8, 16, tzinfo=UTC),
+            sources="NVD,CISA_KEV",
+        ),
+        CveCatalogRecord(
+            cve_id="CVE-2023-4863",
+            title="Libwebp Heap Buffer Overflow Code Execution",
+            cvss_score=Decimal("8.8"),
+            severity="HIGH",
+            known_exploited=False,
+            sources="NVD",
+        ),
+        CveCatalogRecord(
+            cve_id="CVE-2023-44487",
+            title="HTTP/2 Rapid Reset Denial of Service",
+            cvss_score=Decimal("7.5"),
+            severity="HIGH",
+            known_exploited=False,
+            sources="NVD",
+        ),
+        CveCatalogRecord(
+            cve_id="CVE-2021-44228",
+            title=payment_api_log4shell_vuln.title,
+            description=payment_api_log4shell_vuln.description,
+            cvss_score=payment_api_log4shell_vuln.cvss_score,
+            severity=payment_api_log4shell_vuln.severity.upper(),
+            known_exploited=True,
+            kev_date_added=payment_api_log4shell_vuln.kev_date_added,
+            kev_due_date=payment_api_log4shell_vuln.kev_due_date,
+            known_ransomware_campaign_use=True,
+            affected_vendor="Apache",
+            affected_product=payment_api_log4shell_vuln.affected_product,
+            cwe_ids=payment_api_log4shell_vuln.cwe_id,
+            required_action=payment_api_log4shell_vuln.required_action,
+            sources=payment_api_log4shell_vuln.sources,
+        ),
+    ]
+    db.add_all(cve_catalog_items)
     db.flush()
 
     # 7. Telemetry Events (SIEM: 120, EDR: 60, CSPM: 35, IAM Access: 55+)
@@ -253,6 +366,56 @@ def seed(db: Session, asset_count: int = 100, user_count: int = 35, siem_count: 
             "mfa_enabled": False,
             "session_type": "interactive",
         }),
+    ))
+
+    # Normalized counterparts of the PAYMENT-API-01 correlated scenario above,
+    # for P2's per-source signal extraction (asset.edr_events / .cspm_findings /
+    # .iam_accesses), matching the legacy SecurityEvent rows already recorded.
+    users[1].user_id_code = "USR-001"
+    users[1].username = "admin.singh"
+    users[1].mfa_enabled = False
+    users[1].failed_login_count = 17
+    telemetry_events.append(SecurityEvent(
+        source="siem",
+        event_type="BRUTE_FORCE",
+        severity="high",
+        technique="T1110",
+        source_ip="185.10.20.30",
+        observed_at=now - timedelta(minutes=50),
+        asset=payment_api,
+        raw_payload=json.dumps({"technique": "T1110", "technique_name": "Brute Force", "source_ip": "185.10.20.30"}),
+    ))
+    db.add(EdrEvent(
+        event_id_code="EDR-PAYMENT-API-01-001",
+        endpoint_id="PAYMENT-API-01",
+        event_type="Credential Dumping",
+        indicator="credential_dumping",
+        process_name="powershell.exe",
+        process_path="C:\\Windows\\Temp\\mimikatz.exe",
+        severity="critical",
+        observed_at=now - timedelta(minutes=25),
+        asset=payment_api,
+        raw_payload=json.dumps({"technique": "T1003", "target_process": "lsass.exe"}),
+    ))
+    db.add(CspmFinding(
+        finding_id_code="CSPM-PAYMENT-API-01-001",
+        provider="AWS",
+        resource_id="sg-payment-api-prod",
+        resource_type="security_group",
+        finding_type="OPEN_SECURITY_GROUP",
+        description="Unrestricted Ingress 0.0.0.0/0 on Port 8443",
+        severity="critical",
+        status="open",
+        internet_exposed=True,
+        encrypted=False,
+        asset=payment_api,
+        raw_payload=json.dumps({"rule_id": "CIS-AWS-1.16", "compliance_status": "NON_COMPLIANT"}),
+    ))
+    db.add(UserAssetAccess(
+        user=users[1],
+        asset=payment_api,
+        access_level="admin",
+        status="active",
     ))
 
     # Generate 119 more SIEM Events (Total 120 SIEM events)

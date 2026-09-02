@@ -32,6 +32,7 @@ from app.schemas.contracts import (
 )
 from app.schemas.contracts import (
     AssetCorrelationRead,
+    AssetTelemetryCorrelationRead,
     AssetRead,
     AssetVulnerabilityAssociationRequest,
     AttackPathRead,
@@ -668,7 +669,7 @@ def get_asset_attack_paths(asset_id: int, db: Session = Depends(get_db)):
     return filtered
 
 
-@router.get("/correlation/asset/{asset_id}", response_model=AssetCorrelationRead, summary="Get multi-source telemetry convergence for an asset")
+@router.get("/correlation/asset/{asset_id}", response_model=AssetTelemetryCorrelationRead, summary="Get multi-source telemetry convergence for an asset")
 def correlate_asset(asset_id: str, db: Session = Depends(get_db)):
     digital_twin = CyberRiskDigitalTwin(db)
     result = digital_twin.correlate_asset_sources(asset_id)

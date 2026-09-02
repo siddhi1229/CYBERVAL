@@ -13,7 +13,7 @@ from app.models import (
     SecurityEvent, Threat, User, Vulnerability,
 )
 from app.schemas.contracts import (
-    AssetCorrelationRead, AssetDependencyRead, AttackPathEdgeRead,
+    AssetDependencyRead, AssetTelemetryCorrelationRead, AttackPathEdgeRead,
     AttackPathRead, CytoscapeEdge, CytoscapeEdgeData, CytoscapeGraphResponse,
     CytoscapeGraphSummary, CytoscapeNode, CytoscapeNodeData,
     SupportingTelemetryRead,
@@ -879,7 +879,7 @@ class CyberRiskDigitalTwin:
     # Multi-Source Telemetry Correlation
     # ==========================================
 
-    def correlate_asset_sources(self, asset_identifier: str | int) -> AssetCorrelationRead | None:
+    def correlate_asset_sources(self, asset_identifier: str | int) -> AssetTelemetryCorrelationRead | None:
         """
         Correlates telemetry across Vulnerabilities, IAM, SIEM, EDR, CSPM, Controls,
         and Business Services for a specific asset (e.g. 'PAYMENT-API-01' or ID 2).
@@ -971,7 +971,7 @@ class CyberRiskDigitalTwin:
         svc_name = target_asset.business_service.name if target_asset.business_service else None
         svc_crit = target_asset.business_service.criticality if target_asset.business_service else "medium"
 
-        return AssetCorrelationRead(
+        return AssetTelemetryCorrelationRead(
             asset_id=aid,
             asset_name=target_asset.name,
             asset_type=target_asset.asset_type,

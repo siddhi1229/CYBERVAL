@@ -353,7 +353,7 @@ class AssetDependencyRead(BaseModel):
 # Multi-Source Asset Correlation Schemas (P3)
 # ==========================================
 
-class AssetCorrelationRead(BaseModel):
+class AssetTelemetryCorrelationRead(BaseModel):
     asset_id: int
     asset_name: str
     asset_type: str
