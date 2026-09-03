@@ -7,6 +7,7 @@ import {
   mockSimulationControls,
   mockInvestmentData,
   mockMasterComplianceData,
+  mockAttackPaths,
   mockCopilotKnowledge,
   mockCopilotPrompts
 } from './mockData';
@@ -72,6 +73,9 @@ function getMockResponseForUrl(url = '', method = 'get', requestData) {
   }
   if (cleanUrl.includes('/risk')) {
     return mockRiskModelingData;
+  }
+  if (cleanUrl.includes('/attack-paths')) {
+    return mockAttackPaths;
   }
   if (cleanUrl.includes('/attack-graph') || cleanUrl.includes('/graph')) {
     return mockAttackGraphData;

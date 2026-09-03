@@ -647,13 +647,110 @@ export const mockAttackGraphData = {
     { data: { id: 'e10', source: 'db-payment', target: 'srv-upi-payment', label: 'Transaction Interception / Forgery', isAttackPath: false, exploitability: 0.8, protocol: 'Service Disruption' } }
   ],
   killchainSummary: {
-    fastestAttackPath: 'Internet → Citrix VPN (CVE-2023-4966) → Domain Admin → Active Directory → Jump Host → Core Banking Oracle RAC',
-    stepsCount: 5,
-    estimatedTimeToCompromise: '3.5 Hours',
-    financialExposureAtRisk: '₹38.5 Cr',
-    primaryWeakness: 'Missing FIDO2 MFA on perimeter & unrestricted lateral RPC/SMB between jump hosts and databases'
+    fastestAttackPath: 'Internet → Internet Gateway (CVE-2024-21762) → Payment API (CVE-2021-44228) → Payment Processing DB',
+    stepsCount: 3,
+    estimatedTimeToCompromise: '1.5 Hours',
+    financialExposureAtRisk: '₹48 Cr',
+    primaryWeakness: 'MFA Disabled on Privileged Payment Admin Account'
   }
 };
+
+export const mockAttackPaths = [
+  {
+    path_id: 'attack-path-001',
+    nodes: ['internet-0', 'asset-2'],
+    entry_point: 'Internet',
+    target: 'Payment API',
+    hops: 1,
+    path_score: 86.4,
+    critical_vulnerabilities: ['CVE-2024-21762 (CVSS 9.8) on Payment API'],
+    control_weaknesses: ['MFA Disabled on Privileged Payment Admin Account', 'Open Ingress Port 8443 (0.0.0.0/0)'],
+    supporting_telemetry: [
+      { source: 'edr', event_type: 'Credential Dumping', asset_name: 'Payment API', mitre_technique: 'T1003' },
+      { source: 'siem', event_type: 'Brute Force Authentication', asset_name: 'Payment API', mitre_technique: 'T1110' },
+      { source: 'cspm', event_type: 'Open Ingress Port 8443', asset_name: 'Payment API', mitre_technique: 'T1190' }
+    ],
+    vulnerabilities: [{ cve_id: 'CVE-2024-21762', cvss_score: 9.8, severity: 'Critical', asset: 'Payment API' }],
+    controls: [{ name: 'Web Application Firewall (WAF)', effectiveness: 0.85, asset: 'Payment API' }],
+    users: [{ name: 'DevOps Lead', role: 'Cluster Admin', privileged: true, asset: 'Payment API' }]
+  },
+  {
+    path_id: 'attack-path-002',
+    nodes: ['internet-0', 'asset-1', 'asset-2'],
+    entry_point: 'Internet',
+    target: 'Payment API',
+    hops: 2,
+    path_score: 81.0,
+    critical_vulnerabilities: ['CVE-2024-21762 (CVSS 9.8) on Payment API', 'CVE-2024-21762 (CVSS 9.6) on Internet Gateway'],
+    control_weaknesses: ['MFA Disabled on Privileged Payment Admin Account'],
+    supporting_telemetry: [
+      { source: 'siem', event_type: 'Inbound Port Scan', asset_name: 'Internet Gateway', mitre_technique: 'T1046' }
+    ],
+    vulnerabilities: [{ cve_id: 'CVE-2024-21762', cvss_score: 9.8, severity: 'Critical', asset: 'Payment API' }],
+    controls: [{ name: 'Web Application Firewall (WAF)', effectiveness: 0.85, asset: 'Payment API' }],
+    users: [{ name: 'DevOps Lead', role: 'Cluster Admin', privileged: true, asset: 'Payment API' }]
+  },
+  {
+    path_id: 'attack-path-003',
+    nodes: ['internet-0', 'asset-2', 'asset-3'],
+    entry_point: 'Internet',
+    target: 'Customer Database',
+    hops: 2,
+    path_score: 80.9,
+    critical_vulnerabilities: ['CVE-2024-21762 (CVSS 9.8) on Payment API'],
+    control_weaknesses: ['MFA Disabled on Privileged Payment Admin Account'],
+    supporting_telemetry: [
+      { source: 'edr', event_type: 'Unauthorized SQL Query', asset_name: 'Customer Database', mitre_technique: 'T1078' }
+    ],
+    vulnerabilities: [{ cve_id: 'CVE-2024-21762', cvss_score: 9.8, severity: 'Critical', asset: 'Payment API' }],
+    controls: [{ name: 'Database Encryption at Rest & In Transit', effectiveness: 0.9, asset: 'Customer Database' }],
+    users: [{ name: 'Database Administrator', role: 'DBA', privileged: true, asset: 'Customer Database' }]
+  },
+  {
+    path_id: 'attack-path-004',
+    nodes: ['internet-0', 'asset-2', 'asset-4'],
+    entry_point: 'Internet',
+    target: 'Payment Processing DB',
+    hops: 2,
+    path_score: 80.9,
+    critical_vulnerabilities: ['CVE-2024-21762 (CVSS 9.8) on Payment API'],
+    control_weaknesses: ['MFA Disabled on Privileged Payment Admin Account'],
+    supporting_telemetry: [
+      { source: 'edr', event_type: 'Memory Dump', asset_name: 'Payment Processing DB', mitre_technique: 'T1003' }
+    ],
+    vulnerabilities: [{ cve_id: 'CVE-2024-21762', cvss_score: 9.8, severity: 'Critical', asset: 'Payment API' }],
+    controls: [{ name: 'Database Encryption at Rest & In Transit', effectiveness: 0.9, asset: 'Payment Processing DB' }],
+    users: [{ name: 'Database Administrator', role: 'DBA', privileged: true, asset: 'Payment Processing DB' }]
+  },
+  {
+    path_id: 'attack-path-005',
+    nodes: ['asset-1', 'asset-2', 'asset-3'],
+    entry_point: 'Internet Gateway',
+    target: 'Customer Database',
+    hops: 2,
+    path_score: 78.1,
+    critical_vulnerabilities: ['CVE-2024-21762 (CVSS 9.8) on Payment API'],
+    control_weaknesses: ['Open Ingress Port 8443 (0.0.0.0/0)'],
+    supporting_telemetry: [],
+    vulnerabilities: [{ cve_id: 'CVE-2024-21762', cvss_score: 9.8, severity: 'Critical', asset: 'Payment API' }],
+    controls: [{ name: 'Database Encryption at Rest & In Transit', effectiveness: 0.9, asset: 'Customer Database' }],
+    users: [{ name: 'Database Administrator', role: 'DBA', privileged: true, asset: 'Customer Database' }]
+  },
+  {
+    path_id: 'attack-path-006',
+    nodes: ['internet-0', 'asset-2', 'asset-8'],
+    entry_point: 'Internet',
+    target: 'Customer-Portal 08',
+    hops: 2,
+    path_score: 76.6,
+    critical_vulnerabilities: ['CVE-2024-21762 (CVSS 9.8) on Payment API'],
+    control_weaknesses: [],
+    supporting_telemetry: [],
+    vulnerabilities: [{ cve_id: 'CVE-2024-21762', cvss_score: 9.8, severity: 'Critical', asset: 'Payment API' }],
+    controls: [{ name: 'Web Application Firewall (WAF)', effectiveness: 0.85, asset: 'Customer-Portal 08' }],
+    users: []
+  }
+];
 
 export const mockSimulationControls = [
   {

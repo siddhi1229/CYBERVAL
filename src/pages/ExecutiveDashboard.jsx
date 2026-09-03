@@ -226,30 +226,39 @@ export default function ExecutiveDashboard() {
           </div>
 
           <div className="h-64 sm:h-72 w-full pt-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data.riskTrend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="ealGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#2563EB" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#2563EB" stopOpacity={0.0} />
-                  </linearGradient>
-                  <linearGradient id="p95Grad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#D97706" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#D97706" stopOpacity={0.0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E4E7EC" vertical={false} />
-                <XAxis dataKey="month" stroke="#94A3B8" fontSize={11} fontFamily="JetBrains Mono" />
-                <YAxis stroke="#94A3B8" fontSize={11} fontFamily="JetBrains Mono" />
-                <Tooltip
-                  contentStyle={TOOLTIP_STYLE}
-                  formatter={(val, name) => [name === 'score' ? `${val} / 100` : `₹${val} Cr`, name === 'score' ? 'Risk Score' : name === 'eal' ? 'Expected Loss' : 'Worst-Case Loss']}
-                />
-                <Area type="monotone" dataKey="p95" stroke="#D97706" strokeWidth={2} strokeDasharray="3 3" fill="url(#p95Grad)" name="p95" />
-                <Area type="monotone" dataKey="eal" stroke="#2563EB" strokeWidth={2.5} fill="url(#ealGrad)" name="eal" />
-                <Line type="monotone" dataKey="score" stroke="#DC2626" strokeWidth={2} dot={{ fill: '#DC2626', r: 3 }} name="score" />
-              </AreaChart>
-            </ResponsiveContainer>
+            {data.riskTrend && data.riskTrend.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={data.riskTrend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="ealGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="#2563EB" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="#2563EB" stopOpacity={0.0} />
+                    </linearGradient>
+                    <linearGradient id="p95Grad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="#D97706" stopOpacity={0.18} />
+                      <stop offset="95%" stopColor="#D97706" stopOpacity={0.0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E4E7EC" vertical={false} />
+                  <XAxis dataKey="month" stroke="#94A3B8" fontSize={11} fontFamily="JetBrains Mono" tickLine={false} />
+                  <YAxis stroke="#94A3B8" fontSize={11} fontFamily="JetBrains Mono" tickLine={false} />
+                  <Tooltip
+                    contentStyle={TOOLTIP_STYLE}
+                    formatter={(val, name) => [
+                      name === 'score' ? `${val} / 100` : formatCurrency(val),
+                      name === 'score' ? 'Risk Score' : name === 'eal' ? 'Expected Loss (EAL)' : 'Worst-Case Loss (P95)'
+                    ]}
+                  />
+                  <Area type="monotone" dataKey="p95" stroke="#D97706" strokeWidth={2} strokeDasharray="3 3" fill="url(#p95Grad)" name="p95" dot={{ fill: '#D97706', r: 3 }} />
+                  <Area type="monotone" dataKey="eal" stroke="#2563EB" strokeWidth={2.5} fill="url(#ealGrad)" name="eal" dot={{ fill: '#2563EB', r: 3 }} />
+                  <Line type="monotone" dataKey="score" stroke="#DC2626" strokeWidth={2} dot={{ fill: '#DC2626', r: 3.5 }} name="score" />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-cv-muted font-mono text-xs">
+                No historical risk snapshots recorded yet.
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between text-[11px] font-mono text-cv-muted bg-cv-bg p-2.5 rounded border border-cv-border">

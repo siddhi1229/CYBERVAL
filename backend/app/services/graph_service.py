@@ -596,7 +596,7 @@ class CyberRiskDigitalTwin:
         """
         Discovers realistic attack paths using NetworkX path algorithms on the network topology.
         Traverses: Internet -> Internet-exposed assets -> Vulnerabilities / IAM access -> Target databases / Crown Jewels.
-        Scores each path using transparent 0-100 prioritization scoring.
+        Scores each path using transparent normalized 0-100 prioritization scoring with path diversity.
         """
         # 1. Build an attack transition sub-graph containing only viable movement edges
         attack_graph = nx.DiGraph()
@@ -614,13 +614,15 @@ class CyberRiskDigitalTwin:
                 # User accesses Asset, or pivot through credential
                 attack_graph.add_edge(u, v, **attrs)
 
-        # Identify Entry Points and Targets
+        # Identify Entry Points (Internet, perimeter gateways, VPNs, WAFs)
         entry_points = ["internet-0"]
         for n, attrs in self.graph.nodes(data=True):
-            if attrs.get("type") == "Asset" and attrs.get("internet_exposed"):
-                entry_points.append(n)
+            if attrs.get("type") == "Asset":
+                lbl = str(attrs.get("label", "")).lower()
+                if attrs.get("internet_exposed") or "vpn" in lbl or "gateway" in lbl or "bastion" in lbl or "waf" in lbl:
+                    entry_points.append(n)
 
-        # Targets: Databases, Core Banking, Critical Services, High-Value Assets
+        # Identify Target Assets: Databases, Core Banking, Critical Services, High-Value Assets
         target_nodes = []
         if target_asset_id is not None:
             tgt_id = f"asset-{target_asset_id}"
@@ -629,43 +631,105 @@ class CyberRiskDigitalTwin:
         else:
             for n, attrs in self.graph.nodes(data=True):
                 if attrs.get("type") == "Asset":
-                    if attrs.get("criticality") == "critical" or attrs.get("asset_type") == "database" or "Database" in attrs.get("label", "") or "Payment" in attrs.get("label", ""):
+                    crit = str(attrs.get("criticality", "")).lower()
+                    atype = str(attrs.get("asset_type", "")).lower()
+                    lbl = str(attrs.get("label", "")).lower()
+                    if (
+                        crit in ["critical", "high"]
+                        or atype == "database"
+                        or "database" in lbl
+                        or "payment" in lbl
+                        or "storage" in lbl
+                        or "server" in lbl
+                        or "banking" in lbl
+                        or "auth" in lbl
+                        or "portal" in lbl
+                    ):
                         target_nodes.append(n)
 
         discovered_raw_paths: list[list[str]] = []
         seen_path_tuples = set()
+        MAX_PATHS_PER_TARGET = 3
 
-        for src in entry_points:
-            for tgt in target_nodes:
-                if src == tgt:
-                    continue
-                try:
-                    if nx.has_path(attack_graph, src, tgt):
-                        for p in nx.all_simple_paths(attack_graph, source=src, target=tgt, cutoff=5):
+        # 1. Primary traversal from Internet (Virtual Ingress)
+        for tgt in target_nodes:
+            if tgt == "internet-0":
+                continue
+            tgt_count = 0
+            try:
+                if nx.has_path(attack_graph, "internet-0", tgt):
+                    for p in nx.all_shortest_paths(attack_graph, "internet-0", tgt):
+                        p_tuple = tuple(p)
+                        if p_tuple not in seen_path_tuples:
+                            seen_path_tuples.add(p_tuple)
+                            discovered_raw_paths.append(p)
+                            tgt_count += 1
+                            if tgt_count >= 2:
+                                break
+
+                    # Also discover realistic multi-hop simple paths up to cutoff 4
+                    if tgt_count < MAX_PATHS_PER_TARGET:
+                        for p in nx.all_simple_paths(attack_graph, "internet-0", tgt, cutoff=4):
                             p_tuple = tuple(p)
                             if p_tuple not in seen_path_tuples:
                                 seen_path_tuples.add(p_tuple)
                                 discovered_raw_paths.append(p)
-                                if len(discovered_raw_paths) >= 60:
+                                tgt_count += 1
+                                if tgt_count >= MAX_PATHS_PER_TARGET:
                                     break
-                except Exception as e:
-                    logger.debug(f"Path finding error: {e}")
+            except Exception as e:
+                logger.debug(f"Path finding error from internet-0 to {tgt}: {e}")
 
-        # 2. Enrich and score all discovered paths
-        scored_paths: list[AttackPathRead] = []
+        # 2. Traversal from specific perimeter / VPN entry points
+        for ep in entry_points:
+            if ep == "internet-0":
+                continue
+            for tgt in target_nodes:
+                if tgt == ep:
+                    continue
+                try:
+                    if nx.has_path(attack_graph, ep, tgt):
+                        for p in nx.all_shortest_paths(attack_graph, ep, tgt):
+                            p_tuple = tuple(p)
+                            if p_tuple not in seen_path_tuples:
+                                seen_path_tuples.add(p_tuple)
+                                discovered_raw_paths.append(p)
+                                break
+                except Exception as e:
+                    logger.debug(f"Path finding error from {ep} to {tgt}: {e}")
+
+        # 3. Evaluate and score all discovered candidate paths
+        scored_candidates: list[AttackPathRead] = []
         for idx, raw_path in enumerate(discovered_raw_paths):
             path_obj = self._evaluate_and_score_path(idx + 1, raw_path)
             if path_obj.path_score >= min_score:
-                scored_paths.append(path_obj)
+                scored_candidates.append(path_obj)
 
-        # Sort by path_score descending
-        scored_paths.sort(key=lambda p: p.path_score, reverse=True)
-        return scored_paths[:limit]
+        # Sort all candidates by path_score descending
+        scored_candidates.sort(key=lambda p: p.path_score, reverse=True)
+
+        # Enforce diversity per target so no single target monopolizes results
+        diverse_paths: list[AttackPathRead] = []
+        target_counts: dict[str, int] = defaultdict(int)
+
+        for path_obj in scored_candidates:
+            if target_asset_id is not None:
+                diverse_paths.append(path_obj)
+            else:
+                if target_counts[path_obj.target] < MAX_PATHS_PER_TARGET:
+                    target_counts[path_obj.target] += 1
+                    diverse_paths.append(path_obj)
+
+        # Re-assign sequential clean IDs to top ranked diverse paths
+        for rank_idx, path_obj in enumerate(diverse_paths):
+            path_obj.path_id = f"attack-path-{rank_idx + 1:03d}"
+
+        return diverse_paths[:limit]
 
     def _evaluate_and_score_path(self, path_index: int, node_ids: list[str]) -> AttackPathRead:
         """
         Calculates transparent prioritization score and aggregates critical vulnerabilities,
-        controls, telemetry, and business services on the path.
+        controls, telemetry, and business services on the path using a normalized 0-100 model.
         """
         path_id = f"attack-path-{path_index:03d}"
         hops = len(node_ids) - 1
@@ -794,51 +858,77 @@ class CyberRiskDigitalTwin:
                         ))
 
         # Check for specific PAYMENT-API-01 correlation weaknesses
-        if any("PAYMENT-API-01" in a for a in critical_assets):
+        if any("PAYMENT-API-01" in a or "Payment API" in a for a in critical_assets):
             control_weaknesses.append("MFA Disabled on Privileged Payment Admin Account")
             control_weaknesses.append("Open Ingress Port 8443 (0.0.0.0/0)")
 
         # -------------------------------------------------------------
-        # Transparent Attack Path Prioritization Scoring Formula (0-100)
+        # Normalized Attack Path Prioritization Scoring Model (0-100)
+        # Components have a deliberate maximum sum of 100:
+        # - Vulnerability severity: max 25
+        # - Internet exposure: max 15
+        # - Privileged IAM access: max 15
+        # - Security telemetry / exposure signals: max 15
+        # - Target criticality / business importance: max 15
+        # - Path efficiency / reachability: max 10
+        # - Other path-specific risk factor: max 5
+        # Controls REDUCE the score (0 to -15) based on active coverage.
         # -------------------------------------------------------------
-        score = 35.0
 
         # 1. Vulnerability Severity (+0 to +25)
-        score += (max_cvss / 10.0) * 25.0
+        # Continuous scaling by maximum CVSS with multi-vulnerability exploit chain bonus
+        vuln_score = min(25.0, (max_cvss / 10.0) * 18.0 + min(7.0, len(critical_vulnerabilities) * 3.5))
 
-        # 2. Internet Exposure (+15)
-        if entry_point == "Internet" or entry_attrs.get("internet_exposed"):
-            score += 15.0
+        # 2. Internet Exposure (+0 to +15)
+        # Ingress originates from Internet or an internet-exposed perimeter asset
+        is_internet_ingress = (entry_node_id == "internet-0" or entry_point == "Internet")
+        is_exposed_asset = is_internet_ingress or entry_attrs.get("internet_exposed", False)
+        exposure_score = 15.0 if is_internet_ingress else (12.0 if is_exposed_asset else 3.0)
 
-        # 3. Privileged IAM Access (+15)
-        if has_privileged_access:
-            score += 15.0
+        # 3. Privileged IAM Access (+0 to +15)
+        # Exploitable privileged admin credentials or user access on path
+        iam_score = 15.0 if has_privileged_access else (7.0 if len(users_list) > 0 else 0.0)
 
-        # 4. Telemetry Signals (+10 SIEM, +15 EDR, +10 CSPM)
-        if has_siem_signal:
-            score += 8.0
-        if has_edr_signal:
-            score += 12.0
-        if has_cspm_signal:
-            score += 8.0
+        # 4. Security Telemetry Signals (+0 to +15)
+        # SIEM (max 4.0), EDR (max 6.0), CSPM (max 5.0) observed on path assets
+        telemetry_score = min(
+            15.0,
+            (4.0 if has_siem_signal else 0.0)
+            + (6.0 if has_edr_signal else 0.0)
+            + (5.0 if has_cspm_signal else 0.0),
+        )
 
-        # 5. Critical Target Impact (+10)
-        if target_attrs.get("criticality") == "critical" or "Database" in target:
-            score += 10.0
+        # 5. Target Criticality / Business Importance (+0 to +15)
+        tgt_crit = str(target_attrs.get("criticality", "")).lower()
+        if tgt_crit == "critical" or "database" in target.lower() or "payment" in target.lower() or "banking" in target.lower():
+            target_score = 15.0
+        elif tgt_crit == "high" or "portal" in target.lower() or "storage" in target.lower():
+            target_score = 11.0
+        elif tgt_crit == "medium":
+            target_score = 6.0
+        else:
+            target_score = 3.0
 
-        # 6. Control Mitigation Deduction (-0 to -15)
+        # 6. Path Reachability & Efficiency (+2 to +10)
+        # Shorter, more direct lateral vectors have lower friction and higher exploit probability
+        reachability_score = max(2.0, (5 - hops) * 2.0)
+
+        # 7. Path-Specific Weakness / Correlation (+0 to +5)
+        has_correlated_weakness = any("PAYMENT" in a or "Payment" in a for a in critical_assets) or len(control_weaknesses) > 0
+        weakness_score = 5.0 if has_correlated_weakness else 0.0
+
+        # Gross Unmitigated Risk Score (Naturally bounded <= 100.0)
+        gross_score = vuln_score + exposure_score + iam_score + telemetry_score + target_score + reachability_score + weakness_score
+
+        # 8. Control Mitigation Deduction (-0 to -15)
+        # Strong, effective active controls reduce overall path exploitability
+        control_deduction = 0.0
         if control_count > 0:
             avg_eff = control_effectiveness_sum / control_count
-            score -= (avg_eff * 12.0)
+            control_deduction = min(15.0, avg_eff * min(15.0, control_count * 2.5))
 
-        # 7. Hop Efficiency Bonus (shorter paths are more direct and urgent)
-        score += max(0.0, (5 - hops) * 1.5)
-
-        # Boost specifically correlated high-risk scenario
-        if any("PAYMENT-API-01" in a for a in critical_assets) and "Customer Database" in target:
-            score = max(score, 94.5)
-
-        score = max(5.0, min(99.9, round(score, 1)))
+        # Defensible normalized final score strictly within 0-100 without artificial saturation
+        score = round(max(5.0, min(100.0, gross_score - control_deduction)), 1)
 
         # Backward compatibility values for P1/P2
         likelihood = Decimal(str(round(min(0.95, score / 100.0), 2)))

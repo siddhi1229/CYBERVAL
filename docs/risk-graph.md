@@ -87,22 +87,20 @@ Attack paths are discovered dynamically using NetworkX path algorithms on the ne
 
 ## 5. Transparent Path Prioritization Scoring
 
-The attack path score is a **0 to 100 structural prioritization score** (distinct from P2 financial EAL).
+The attack path score is a **0 to 100 normalized structural prioritization score** (distinct from P2 financial EAL).
 
-$$\text{Path Score} = \text{Base} + S_{\text{CVSS}} + S_{\text{Internet}} + S_{\text{IAM}} + S_{\text{SIEM}} + S_{\text{EDR}} + S_{\text{CSPM}} + S_{\text{Target}} - S_{\text{Control}} + S_{\text{Hops}}$$
+$$\text{Path Score} = \text{round}\left(\max\left(5.0, \min\left(100.0, S_{\text{Vuln}} + S_{\text{Internet}} + S_{\text{IAM}} + S_{\text{Telemetry}} + S_{\text{Target}} + S_{\text{Reachability}} + S_{\text{Weakness}} - S_{\text{Control}}\right)\right), 1\right)$$
 
-### Scoring Components:
-- **Base Score**: $+35.0$
-- **Vulnerability Exploitability**: $+ (\max(\text{CVSS}) / 10.0) \times 25.0$ (up to $+25.0$)
-- **Internet Exposure**: $+15.0$ if entry point is exposed to the public internet
-- **Privileged IAM Access**: $+15.0$ if path involves privileged identity access without MFA
-- **SIEM Telemetry**: $+8.0$ if active brute force / anomaly detected
-- **EDR Telemetry**: $+12.0$ if active credential dumping / malicious execution detected
-- **CSPM Misconfiguration**: $+8.0$ if open security group / compliance failure detected
-- **Critical Crown Jewel Target**: $+10.0$ if targeting critical database or core banking service
-- **Control Mitigation Deduction**: $- (\overline{\text{Effectiveness}} \times 12.0)$
-- **Hop Efficiency Bonus**: $+ \max(0, (5 - \text{hops}) \times 1.5)$
-- **Score Bounds**: Clamped to $[5.0, 99.9]$
+### Scoring Components (Defensible Normalized 0–100 Scale):
+- **Vulnerability Severity ($S_{\text{Vuln}}$)**: Up to $+25.0$ (continuous scaling by max CVSS $+ (\max(\text{CVSS})/10.0) \times 18.0$ with multi-exploit chaining bonus up to $+7.0$)
+- **Internet Ingress Exposure ($S_{\text{Internet}}$)**: Up to $+15.0$ ($+15.0$ for direct Internet ingress, $+12.0$ for perimeter gateway/VPN, $+3.0$ for internal pivots)
+- **Privileged IAM Access ($S_{\text{IAM}}$)**: Up to $+15.0$ ($+15.0$ for privileged admin credentials, $+7.0$ for standard user access)
+- **Security Telemetry Signals ($S_{\text{Telemetry}}$)**: Up to $+15.0$ ($\min(15.0, \text{EDR}(+6.0) + \text{CSPM}(+5.0) + \text{SIEM}(+4.0))$)
+- **Target Criticality & Business Value ($S_{\text{Target}}$)**: Up to $+15.0$ ($+15.0$ for critical database/core banking, $+11.0$ for high-value portals/storage, $+6.0$ for medium)
+- **Path Reachability & Efficiency ($S_{\text{Reachability}}$)**: Up to $+10.0$ ($\max(2.0, (5 - \text{hops}) \times 2.0)$)
+- **Path-Specific Weakness & Correlation ($S_{\text{Weakness}}$)**: Up to $+5.0$ ($+5.0$ for specific payment API correlations, unmitigated admin access, or open ports)
+- **Control Mitigation Deduction ($S_{\text{Control}}$)**: Up to $-15.0$ (active controls reduce exploitability based on average effectiveness $\overline{\text{Eff}} \times \min(15.0, \text{Count} \times 2.5)$)
+- **Score Range**: Naturally bounded within $[5.0, 100.0]$ without artificial saturation.
 
 ---
 
