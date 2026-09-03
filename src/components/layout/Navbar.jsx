@@ -11,7 +11,9 @@ import {
   Terminal,
   ExternalLink,
   CheckCircle2,
-  AlertOctagon
+  AlertOctagon,
+  User,
+  Shield
 } from 'lucide-react';
 import { useTelemetry } from '../../context/TelemetryContext';
 import Modal from '../common/Modal';
@@ -48,7 +50,7 @@ export default function Navbar() {
           {/* Brand Logo & Telemetry Indicator */}
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2.5">
-              <div className="relative flex items-center justify-center w-9 h-9 rounded-lg bg-cv-blue border border-blue-700">
+              <div className="relative flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-tr from-cv-blue to-blue-600 border border-blue-700 shadow-sm">
                 <ShieldAlert className="w-5 h-5 text-white" />
                 <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-cv-success ring-2 ring-white" />
               </div>
@@ -57,7 +59,7 @@ export default function Navbar() {
                   CYBERVAL
                 </span>
                 <span className="ml-1.5 text-[10px] font-mono px-1.5 py-0.5 rounded bg-cv-blueLight text-cv-blue border border-blue-200 font-semibold">
-                  ENTERPRISE v1.0
+                  ENTERPRISE
                 </span>
               </div>
             </div>
@@ -66,23 +68,23 @@ export default function Navbar() {
             <div className="hidden lg:flex items-center space-x-3 pl-4 border-l border-cv-border text-xs font-mono text-cv-muted">
               <div className="flex items-center space-x-1.5 px-2 py-1 rounded bg-cv-bg border border-cv-border">
                 <span className="text-cv-muted">RISK SCORE:</span>
-                <strong className="text-cv-danger">71</strong>
-                <span className="text-[10px] text-cv-success font-bold">▼4.2</span>
+                <strong className="text-cv-danger">74</strong>
+                <span className="text-[10px] text-cv-success font-bold">LIVE</span>
               </div>
               
               <div className="flex items-center space-x-1.5 px-2 py-1 rounded bg-cv-bg border border-cv-border">
                 <span className="text-cv-muted">YEARLY LOSS:</span>
-                <strong className="text-cv-text">{formatCurrency(18.4)}</strong>
+                <strong className="text-cv-text">{formatCurrency(54.7)}</strong>
               </div>
 
               <div className="flex items-center space-x-1.5 px-2 py-1 rounded bg-cv-bg border border-cv-border">
                 <span className="text-cv-muted">WORST CASE:</span>
-                <strong className="text-cv-warning">{formatCurrency(31.7)}</strong>
+                <strong className="text-cv-warning">{formatCurrency(94.1)}</strong>
               </div>
 
               <div className="flex items-center space-x-1.5 text-[11px] text-cv-success pl-1">
                 <span className="w-2 h-2 rounded-full bg-cv-success animate-pulse" />
-                <span>LIVE</span>
+                <span className="font-semibold">CONNECTED</span>
               </div>
             </div>
           </div>
@@ -91,13 +93,13 @@ export default function Navbar() {
           <div className="flex-1 max-w-md mx-4 hidden md:block">
             <button
               onClick={() => setIsSearchOpen(true)}
-              className="w-full flex items-center justify-between px-3.5 py-1.5 rounded-lg bg-cv-bg border border-cv-border hover:border-cv-blue text-cv-muted text-xs font-mono transition-all"
+              className="w-full flex items-center justify-between px-3.5 py-1.5 rounded-lg bg-cv-bg border border-cv-border hover:border-cv-blue text-cv-muted text-xs font-mono transition-all shadow-xs"
             >
               <div className="flex items-center space-x-2">
                 <Search className="w-4 h-4 text-cv-blue" />
                 <span>Search assets, risks, vulnerabilities...</span>
               </div>
-              <kbd className="px-1.5 py-0.5 text-[10px] bg-white border border-cv-border rounded text-cv-muted">
+              <kbd className="px-1.5 py-0.5 text-[10px] bg-white border border-cv-border rounded text-cv-muted font-sans font-medium">
                 ⌘K
               </kbd>
             </button>
@@ -149,10 +151,13 @@ export default function Navbar() {
               <span>EXECUTIVE REPORT</span>
             </a>
 
-            {/* User / Org Avatar */}
+            {/* SecOps User Profile Avatar (Clean, no P6) */}
             <div className="flex items-center space-x-2 pl-2 border-l border-cv-border">
-              <div className="w-8 h-8 rounded-lg bg-cv-blue flex items-center justify-center font-mono font-bold text-xs text-white shadow-sm">
-                P6
+              <div 
+                className="w-8 h-8 rounded-lg bg-gradient-to-tr from-slate-800 to-slate-700 border border-slate-600/50 flex items-center justify-center text-white shadow-xs cursor-pointer hover:border-cv-blue transition-all"
+                title="SecOps Risk Lead (Logged in)"
+              >
+                <User className="w-4 h-4 text-slate-200" />
               </div>
             </div>
           </div>
