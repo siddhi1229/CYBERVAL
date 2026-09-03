@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import cytoscape from 'cytoscape';
 import dagre from 'cytoscape-dagre';
-import cola from 'cytoscape-cola';
 import {
   Network,
   ShieldAlert,
@@ -10,7 +9,6 @@ import {
   ZoomOut,
   Maximize2,
   Filter,
-  Eye,
   Zap,
   Info,
   DollarSign,
@@ -28,19 +26,19 @@ import {
   Database,
   Globe,
   User,
-  Cpu
+  Cpu,
+  Focus,
+  Activity,
+  CornerDownRight
 } from 'lucide-react';
 import Badge from '../components/common/Badge';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import { useTelemetry } from '../context/TelemetryContext';
 import { attackGraphApi } from '../api/attackGraphApi';
 
-// Register Cytoscape layout plugins safely
+// Register Cytoscape Dagre layout safely
 try {
   cytoscape.use(dagre);
-} catch (e) {}
-try {
-  cytoscape.use(cola);
 } catch (e) {}
 
 export default function AttackGraphPage() {
@@ -54,21 +52,20 @@ export default function AttackGraphPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Progressive Visualization States
-  // viewMode: 'path' (Level 2: Path-Only Hero View - DEFAULT) | 'enterprise' (Level 1: Enterprise Overview)
-  const [viewMode, setViewMode] = useState('path');
+  // Path selection & Node inspection states
   const [selectedPathId, setSelectedPathId] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
-  const [activeLayout, setActiveLayout] = useState('dagre'); // 'dagre' | 'concentric' | 'cola'
   
-  // Filtering & Interaction
+  // Filtering & Search
   const [searchQuery, setSearchQuery] = useState('');
   const [targetFilter, setTargetFilter] = useState('ALL');
+
+  // Blast Radius simulator
   const [blastRadiusActive, setBlastRadiusActive] = useState(false);
   const [blastRadiusCount, setBlastRadiusCount] = useState(0);
   const [blastRadiusExposure, setBlastRadiusExposure] = useState(0);
 
-  // 1. Fetch graph topology and dynamic attack paths
+  // 1. Fetch graph topology and dynamic attack paths from backend
   useEffect(() => {
     async function loadData() {
       try {
@@ -97,13 +94,13 @@ export default function AttackGraphPage() {
     loadData();
   }, [refreshKey]);
 
-  // Currently active attack path object
+  // Active attack path object
   const activePath = useMemo(() => {
     if (!attackPaths || attackPaths.length === 0) return null;
     return attackPaths.find((p) => p.path_id === selectedPathId) || attackPaths[0];
   }, [attackPaths, selectedPathId]);
 
-  // Unique targets for filter dropdown
+  // Unique target assets for filtering
   const uniqueTargets = useMemo(() => {
     const targets = new Set(attackPaths.map((p) => p.target).filter(Boolean));
     return ['ALL', ...Array.from(targets)];
@@ -123,99 +120,78 @@ export default function AttackGraphPage() {
     });
   }, [attackPaths, targetFilter, searchQuery]);
 
-  // 2. Compute elements for Cytoscape depending on viewMode
+  // 2. Build Cytoscape hierarchical elements for the active attack path
   const cyElements = useMemo(() => {
-    if (!graphData || !graphData.elements) return { nodes: [], edges: [] };
+    if (!activePath) return { nodes: [], edges: [] };
 
-    const allNodes = graphData.elements.nodes || [];
-    const allEdges = graphData.elements.edges || [];
-    const nodeMap = new Map(allNodes.map((n) => [n.data.id, n]));
+    const allNodes = graphData?.elements?.nodes || [];
+    const nodeMap = new Map(allNodes.map((n) => [n.data.id, n.data]));
 
-    if (viewMode === 'path' && activePath) {
-      // Level 2: PATH-ONLY VIEW - Render ONLY the nodes and edges belonging to the active attack path
-      const pathNodeIds = activePath.nodes || [];
-      const pathNodes = [];
+    const pathNodeIds = activePath.nodes || [];
+    const pathNodes = [];
 
-      pathNodeIds.forEach((nodeId, idx) => {
-        const existingNode = nodeMap.get(nodeId);
-        const isEntry = idx === 0;
-        const isTarget = idx === pathNodeIds.length - 1;
+    pathNodeIds.forEach((nodeId, idx) => {
+      const existing = nodeMap.get(nodeId);
+      const isEntry = idx === 0;
+      const isTarget = idx === pathNodeIds.length - 1;
 
-        if (existingNode) {
-          pathNodes.push({
-            ...existingNode,
-            data: {
-              ...existingNode.data,
-              isEntryNode: isEntry,
-              isTargetNode: isTarget,
-              pathSequenceIndex: idx + 1,
-            },
-          });
-        } else {
-          // Synthesize node if not in base topology
-          pathNodes.push({
-            data: {
-              id: nodeId,
-              label: nodeId.toUpperCase(),
-              type: isEntry ? 'EntryZone' : isTarget ? 'CrownJewel' : 'Asset',
-              category: isEntry ? 'perimeter' : 'asset',
-              risk_score: activePath.path_score || 90.0,
-              isEntryNode: isEntry,
-              isTargetNode: isTarget,
-              pathSequenceIndex: idx + 1,
-            },
-          });
-        }
+      // Extract clean label and sub-label
+      let primaryLabel = existing?.label || (nodeId === 'internet-0' ? 'External Ingress' : nodeId.toUpperCase());
+      let nodeCategory = existing?.category || (isEntry ? 'perimeter' : 'asset');
+      let nodeType = existing?.type || (isEntry ? 'EntryZone' : isTarget ? 'CrownJewel' : 'Asset');
+      let nodeRisk = existing?.risk_score || activePath.path_score || 90.0;
+      let nodeTier = existing?.environment || (isEntry ? 'PERIMETER' : isTarget ? 'CRITICAL TIER 1' : 'INTERNAL');
+      let roleLabel = isEntry
+        ? 'INTERNET ATTACKER'
+        : isTarget
+        ? 'CROWN JEWEL TARGET'
+        : `LATERAL HOP #${idx}`;
+
+      pathNodes.push({
+        data: {
+          id: nodeId,
+          label: `${primaryLabel}\n[${roleLabel}]`,
+          cleanName: primaryLabel,
+          roleLabel: roleLabel,
+          type: nodeType,
+          category: nodeCategory,
+          risk_score: nodeRisk,
+          environment: nodeTier,
+          criticality: existing?.criticality || (isTarget ? 'critical' : isEntry ? 'perimeter' : 'medium'),
+          internet_exposed: existing?.internet_exposed ?? isEntry,
+          cve_id: existing?.cve_id || (isTarget && activePath.critical_vulnerabilities?.[0] ? activePath.critical_vulnerabilities[0].split(' ')[0] : null),
+          cvss_score: existing?.cvss_score || (isTarget ? 9.8 : null),
+          mitre_technique: existing?.mitre_technique || (isEntry ? 'T1190 Exploit Public-Facing App' : isTarget ? 'T1486 Data Encrypted for Impact' : 'T1078 Valid Accounts'),
+          business_value: existing?.business_value || (isTarget ? 48000000 : 15000000),
+          isEntryNode: isEntry,
+          isTargetNode: isTarget,
+          stepIndex: idx + 1,
+        },
       });
+    });
 
-      // Construct direct sequential path edges
-      const pathEdges = [];
-      for (let i = 0; i < pathNodeIds.length - 1; i++) {
-        const src = pathNodeIds[i];
-        const tgt = pathNodeIds[i + 1];
-        pathEdges.push({
-          data: {
-            id: `path-edge-${src}-${tgt}`,
-            source: src,
-            target: tgt,
-            label: i === 0 ? 'EXPLOIT_INGRESS' : 'LATERAL_HOP',
-            isAttackPath: true,
-          },
-        });
-      }
+    // Build directional sequential path edges
+    const pathEdges = [];
+    for (let i = 0; i < pathNodeIds.length - 1; i++) {
+      const src = pathNodeIds[i];
+      const tgt = pathNodeIds[i + 1];
+      const edgeLabel = i === 0 ? 'INITIAL EXPLOIT' : `LATERAL HOP ${i}`;
 
-      return { nodes: pathNodes, edges: pathEdges };
+      pathEdges.push({
+        data: {
+          id: `edge-${src}-${tgt}`,
+          source: src,
+          target: tgt,
+          label: edgeLabel,
+          isAttackPath: true,
+        },
+      });
     }
 
-    // Level 1: ENTERPRISE OVERVIEW - Render full graph with clean visual hierarchy
-    return {
-      nodes: allNodes.map((n) => {
-        const inActivePath = activePath?.nodes?.includes(n.data.id);
-        return {
-          ...n,
-          data: {
-            ...n.data,
-            inActivePath: !!inActivePath,
-          },
-        };
-      }),
-      edges: allEdges.map((e) => {
-        const isPathEdge =
-          activePath?.nodes &&
-          activePath.nodes.includes(e.data.source) &&
-          activePath.nodes.includes(e.data.target);
-        return {
-          ...e,
-          data: {
-            ...e.data,
-            isAttackPath: isPathEdge,
-          },
-        };
-      }),
-    };
-  }, [graphData, viewMode, activePath]);
+    return { nodes: pathNodes, edges: pathEdges };
+  }, [graphData, activePath]);
 
-  // 3. Initialize and Update Cytoscape Graph
+  // 3. Render and update Cytoscape Hierarchical Graph
   useEffect(() => {
     if (!containerRef.current || !cyElements.nodes.length) return;
 
@@ -227,160 +203,120 @@ export default function AttackGraphPage() {
       container: containerRef.current,
       elements: [...cyElements.nodes, ...cyElements.edges],
       style: [
-        // Base Node Style
+        // Base Node Style - Clean Enterprise Card
         {
           selector: 'node',
           style: {
             'label': 'data(label)',
             'color': '#0F172A',
             'font-family': 'Inter, system-ui, sans-serif',
-            'font-size': viewMode === 'path' ? '12px' : '10px',
-            'font-weight': '600',
-            'text-valign': 'bottom',
-            'text-margin-y': 8,
+            'font-size': '11px',
+            'font-weight': '700',
+            'text-valign': 'center',
+            'text-halign': 'center',
             'text-wrap': 'wrap',
-            'text-max-width': '120px',
-            'background-color': '#E2E8F0',
-            'border-width': 2,
+            'text-max-width': '140px',
+            'background-color': '#FFFFFF',
+            'border-width': 2.5,
             'border-color': '#94A3B8',
-            'width': viewMode === 'path' ? 56 : 36,
-            'height': viewMode === 'path' ? 56 : 36,
-            'transition-property': 'background-color, border-color, border-width, transform, opacity',
-            'transition-duration': '0.25s',
+            'shape': 'round-rectangle',
+            'width': 160,
+            'height': 64,
+            'padding': 10,
+            'transition-property': 'background-color, border-color, border-width, shadow-blur',
+            'transition-duration': '0.2s',
           },
         },
-        // Ingress / Perimeter Entry Zone Nodes
+        // Attacker / Ingress Infiltration Node
         {
-          selector: 'node[type="EntryZone"], node[category="perimeter"], node[?isEntryNode]',
+          selector: 'node[?isEntryNode]',
           style: {
-            'background-color': '#EEF2F6',
+            'background-color': '#F8FAFC',
             'border-color': '#3B82F6',
             'border-width': 3,
-            'shape': 'round-rectangle',
-            'width': viewMode === 'path' ? 64 : 44,
-            'height': viewMode === 'path' ? 64 : 44,
+            'color': '#1E3A8A',
           },
         },
-        // Vulnerable Gateway / DMZ Servers
+        // Intermediate Lateral Movement Hosts
         {
-          selector: 'node[category="server"], node[type="Asset"]',
+          selector: 'node[!isEntryNode][!isTargetNode]',
           style: {
             'background-color': '#EFF6FF',
             'border-color': '#2563EB',
             'border-width': 2.5,
-            'shape': 'round-rectangle',
+            'color': '#1E40AF',
           },
         },
-        // Target / Crown Jewel Assets
+        // Crown Jewel Critical Target Node (Bold Red Hero)
         {
-          selector: 'node[criticality="critical"], node[?isTargetNode]',
+          selector: 'node[?isTargetNode]',
           style: {
             'background-color': '#FEF2F2',
             'border-color': '#EF4444',
-            'border-width': 4,
-            'shape': 'round-rectangle',
-            'width': viewMode === 'path' ? 68 : 48,
-            'height': viewMode === 'path' ? 68 : 48,
+            'border-width': 3.5,
+            'color': '#991B1B',
+            'width': 175,
+            'height': 70,
           },
         },
-        // Users / Identities
-        {
-          selector: 'node[type="User"], node[category="identity"]',
-          style: {
-            'background-color': '#FAF5FF',
-            'border-color': '#9333EA',
-            'border-width': 2.5,
-            'shape': 'ellipse',
-          },
-        },
-        // Business Services
-        {
-          selector: 'node[type="BusinessService"], node[category="business_service"]',
-          style: {
-            'background-color': '#F0FDF4',
-            'border-color': '#16A34A',
-            'border-width': 3,
-            'shape': 'hexagon',
-            'width': 50,
-            'height': 50,
-          },
-        },
-        // Telemetry Findings (SIEM/EDR/CSPM in Enterprise view)
-        {
-          selector: 'node[category="telemetry"]',
-          style: {
-            'width': 18,
-            'height': 18,
-            'font-size': '8px',
-            'background-color': '#F8FAFC',
-            'border-color': '#CBD5E1',
-            'border-width': 1,
-            'opacity': 0.6,
-          },
-        },
-        // Base Edge Style
-        {
-          selector: 'edge',
-          style: {
-            'width': viewMode === 'path' ? 3.5 : 1.5,
-            'line-color': '#94A3B8',
-            'target-arrow-color': '#94A3B8',
-            'target-arrow-shape': 'triangle',
-            'curve-style': 'bezier',
-            'arrow-scale': viewMode === 'path' ? 1.4 : 1.0,
-            'label': viewMode === 'path' ? 'data(label)' : '',
-            'font-family': 'JetBrains Mono, monospace',
-            'font-size': '9px',
-            'color': '#64748B',
-            'text-rotation': 'autorotate',
-            'text-margin-y': -8,
-            'opacity': viewMode === 'path' ? 1.0 : 0.35,
-          },
-        },
-        // Active Attack Path Edge Style
-        {
-          selector: 'edge[?isAttackPath]',
-          style: {
-            'line-color': '#DC2626',
-            'target-arrow-color': '#DC2626',
-            'width': 4.5,
-            'line-style': 'solid',
-            'opacity': 1.0,
-            'arrow-scale': 1.6,
-            'color': '#DC2626',
-            'font-weight': 'bold',
-          },
-        },
-        // Highlighted Selected Node
+        // Highlighted / Selected Node
         {
           selector: '.highlighted-node',
           style: {
             'border-color': '#2563EB',
-            'border-width': 5,
+            'border-width': 4,
             'background-color': '#DBEAFE',
-            'shadow-blur': 15,
+            'shadow-blur': 14,
             'shadow-color': '#3B82F6',
-            'shadow-opacity': 0.4,
+            'shadow-opacity': 0.35,
           },
         },
-        // Downstream Blast Radius Nodes
+        // Blast Radius Downstream Nodes
         {
           selector: '.blast-node',
           style: {
             'border-color': '#D97706',
-            'border-width': 4,
+            'border-width': 3.5,
             'background-color': '#FEF3C7',
           },
         },
-        // Dimmed Elements
+        // Edge Style - Bold Directed Attack Vector
         {
-          selector: '.dimmed',
+          selector: 'edge',
           style: {
-            'opacity': 0.15,
+            'width': 4,
+            'line-color': '#DC2626',
+            'target-arrow-color': '#DC2626',
+            'target-arrow-shape': 'triangle',
+            'curve-style': 'bezier',
+            'arrow-scale': 1.5,
+            'label': 'data(label)',
+            'font-family': 'JetBrains Mono, monospace',
+            'font-size': '10px',
+            'font-weight': 'bold',
+            'color': '#B91C1C',
+            'text-background-color': '#FFFFFF',
+            'text-background-opacity': 0.9,
+            'text-background-padding': 3,
+            'text-background-shape': 'roundrectangle',
+            'text-border-color': '#FECACA',
+            'text-border-width': 1,
+            'text-border-opacity': 0.8,
+            'text-rotation': 'autorotate',
+            'text-margin-y': -10,
           },
         },
       ],
-      layout: getLayoutConfig(activeLayout, viewMode),
+      layout: {
+        name: 'dagre',
+        rankDir: 'LR', // Clean left-to-right attack progression
+        nodeSep: 60,
+        rankSep: 110,
+        padding: 50,
+        animate: true,
+        animationDuration: 400,
+        fit: true,
+      },
     });
 
     // Node click handler
@@ -392,17 +328,17 @@ export default function AttackGraphPage() {
       node.addClass('highlighted-node');
     });
 
-    // Background click handler to clear selection
+    // Background click handler
     cy.on('tap', (evt) => {
       if (evt.target === cy) {
         setSelectedNode(null);
         setBlastRadiusActive(false);
-        cy.elements().removeClass('highlighted-node blast-node dimmed');
+        cy.elements().removeClass('highlighted-node blast-node');
       }
     });
 
-    // Set initial node selection if in path view
-    if (viewMode === 'path' && cyElements.nodes.length > 0) {
+    // Auto-select target node on load
+    if (cyElements.nodes.length > 0) {
       const targetNode = cy.nodes('[?isTargetNode]').first();
       const nodeToSelect = targetNode.length ? targetNode : cy.nodes().first();
       if (nodeToSelect.length) {
@@ -416,71 +352,30 @@ export default function AttackGraphPage() {
     return () => {
       cy.destroy();
     };
-  }, [cyElements, activeLayout, viewMode]);
+  }, [cyElements]);
 
-  // Layout Configuration Generator
-  function getLayoutConfig(layoutName, mode) {
-    if (layoutName === 'dagre') {
-      return {
-        name: 'dagre',
-        rankDir: mode === 'path' ? 'LR' : 'TB',
-        nodeSep: mode === 'path' ? 60 : 35,
-        rankSep: mode === 'path' ? 100 : 55,
-        animate: true,
-        animationDuration: 400,
-        padding: 50,
-      };
-    }
-    if (layoutName === 'concentric') {
-      return {
-        name: 'concentric',
-        concentric: (node) => {
-          if (node.data('isEntryNode') || node.data('type') === 'EntryZone') return 4;
-          if (node.data('category') === 'perimeter') return 3;
-          if (node.data('type') === 'Asset') return 2;
-          if (node.data('isTargetNode') || node.data('criticality') === 'critical') return 1;
-          return 2;
-        },
-        levelWidth: () => 1,
-        padding: 50,
-        animate: true,
-      };
-    }
-    if (layoutName === 'cola') {
-      return {
-        name: 'cola',
-        maxSimulationTime: 1200,
-        fit: true,
-        padding: 40,
-        nodeSpacing: () => (mode === 'path' ? 50 : 25),
-      };
-    }
-    return { name: 'breadthfirst', directed: true, padding: 40 };
-  }
-
-  // Layout Switcher
-  const changeLayout = (layoutName) => {
-    setActiveLayout(layoutName);
+  // Focus Attack Path in Viewport
+  const handleFocusAttackPath = () => {
     if (cyRef.current) {
-      const layout = cyRef.current.layout(getLayoutConfig(layoutName, viewMode));
-      layout.run();
+      cyRef.current.fit(null, 50);
+      cyRef.current.center();
     }
   };
 
-  // View Mode Switcher (Path View vs Enterprise Overview)
-  const handleViewModeChange = (mode) => {
-    setViewMode(mode);
-    setBlastRadiusActive(false);
-    setSelectedNode(null);
+  // Zoom Helpers
+  const handleZoom = (factor) => {
+    if (cyRef.current) {
+      cyRef.current.zoom({
+        level: cyRef.current.zoom() * factor,
+        renderedPosition: { x: cyRef.current.width() / 2, y: cyRef.current.height() / 2 },
+      });
+    }
   };
 
-  // Path Selection Handler
+  // Path selection handler
   const handleSelectPath = (pathId) => {
     setSelectedPathId(pathId);
     setBlastRadiusActive(false);
-    if (viewMode !== 'path') {
-      setViewMode('path');
-    }
   };
 
   // Blast Radius Simulator
@@ -493,10 +388,8 @@ export default function AttackGraphPage() {
     const successors = node.successors();
     const downstreamNodes = successors.nodes();
 
-    cy.elements().removeClass('dimmed blast-node highlighted-node');
-    cy.elements().addClass('dimmed');
-    node.removeClass('dimmed').addClass('highlighted-node');
-    successors.removeClass('dimmed');
+    cy.elements().removeClass('blast-node highlighted-node');
+    node.addClass('highlighted-node');
     downstreamNodes.addClass('blast-node');
 
     let totalExposure = Number(selectedNode.business_value || selectedNode.risk_score * 480000 || 48000000);
@@ -509,21 +402,7 @@ export default function AttackGraphPage() {
     setBlastRadiusExposure(totalExposure / 10000000); // in Crores
   };
 
-  // Zoom / Navigation Helpers
-  const handleZoom = (factor) => {
-    if (cyRef.current) {
-      cyRef.current.zoom({
-        level: cyRef.current.zoom() * factor,
-        renderedPosition: { x: cyRef.current.width() / 2, y: cyRef.current.height() / 2 },
-      });
-    }
-  };
-
-  const handleFit = () => {
-    if (cyRef.current) cyRef.current.fit(null, 50);
-  };
-
-  if (loading) return <LoadingSpinner text="Analyzing Attack Surface & Traversal Paths..." />;
+  if (loading) return <LoadingSpinner text="Computing Hierarchical Attack Path Graph..." />;
   if (error || !graphData) {
     return (
       <div className="p-8 text-center text-cv-danger border border-red-200 rounded-lg bg-red-50 font-mono">
@@ -535,7 +414,8 @@ export default function AttackGraphPage() {
 
   return (
     <div className="space-y-4">
-      {/* 1. Header Banner with Progressive View Mode Switcher */}
+      
+      {/* 1. Header Banner */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-5 rounded-lg cyber-card border-cv-border">
         <div>
           <div className="flex items-center space-x-2">
@@ -544,52 +424,42 @@ export default function AttackGraphPage() {
               <span>{attackPaths.length} ATTACK PATHS DETECTED</span>
             </span>
             <span className="text-xs font-mono text-cv-muted">
-              P3 Digital Twin · Real-time Graph Traversal
+              P3 Digital Twin · Hierarchical Ingress-to-Target Traversal
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-cv-text mt-1 tracking-tight">
-            Attack Path Intelligence & Exploitation Chains
+            Hierarchical Attack Path Intelligence
           </h1>
           <p className="text-xs sm:text-sm text-cv-muted mt-0.5">
-            Identify how external adversaries infiltrate ingress zones, escalate privileges, and reach critical financial assets.
+            Visualize directional attack trajectories from external entry points through lateral movement hops into crown jewel assets.
           </p>
         </div>
 
-        {/* View Mode Switcher: Level 2 (Path View) vs Level 1 (Enterprise Overview) */}
-        <div className="flex items-center space-x-2 bg-cv-bg p-1.5 rounded-lg border border-cv-border font-mono text-xs">
-          <button
-            onClick={() => handleViewModeChange('path')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md transition-all font-bold ${
-              viewMode === 'path'
-                ? 'bg-cv-blue text-white shadow-sm'
-                : 'text-cv-muted hover:text-cv-text'
-            }`}
-            title="Focus exclusively on the selected attack path traversal chain"
-          >
-            <Zap className="w-3.5 h-3.5" />
-            <span>Attack Paths (Hero View)</span>
-          </button>
-          <button
-            onClick={() => handleViewModeChange('enterprise')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md transition-all font-bold ${
-              viewMode === 'enterprise'
-                ? 'bg-cv-blue text-white shadow-sm'
-                : 'text-cv-muted hover:text-cv-text'
-            }`}
-            title="View the complete 373-node enterprise topology"
-          >
-            <Globe className="w-3.5 h-3.5" />
-            <span>Enterprise Overview ({graphData.summary?.totalNodes || 373})</span>
-          </button>
+        {/* Global Stats Badge */}
+        <div className="flex items-center space-x-3 text-xs font-mono text-cv-muted bg-cv-bg px-3.5 py-2 rounded-lg border border-cv-border">
+          <div>
+            <span className="text-cv-muted text-[10px] block">ENTERPRISE NODES</span>
+            <strong className="text-cv-text font-sans font-bold">{graphData.summary?.totalNodes || 373}</strong>
+          </div>
+          <div className="w-px h-6 bg-cv-border" />
+          <div>
+            <span className="text-cv-muted text-[10px] block">ACTIVE PATHS</span>
+            <strong className="text-cv-danger font-sans font-bold">{attackPaths.length}</strong>
+          </div>
+          <div className="w-px h-6 bg-cv-border" />
+          <div>
+            <span className="text-cv-muted text-[10px] block">PEAK RISK</span>
+            <strong className="text-cv-danger font-sans font-bold">99.9 / 100</strong>
+          </div>
         </div>
       </div>
 
-      {/* 2. Hero Selected Attack Path Summary Card */}
-      {activePath && (
-        <div className="p-4 rounded-lg bg-gradient-to-r from-red-50/80 via-white to-blue-50/80 border border-red-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4 font-mono text-xs">
+      {/* 2. Selected Attack Path Summary Card */}
+      {activePath ? (
+        <div className="p-4 rounded-lg bg-gradient-to-r from-red-50/90 via-white to-blue-50/90 border border-red-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4 font-mono text-xs">
           <div className="space-y-1.5">
             <div className="flex items-center space-x-2">
-              <span className="px-2 py-0.5 rounded bg-cv-danger text-white text-[10px] font-bold">
+              <span className="px-2 py-0.5 rounded bg-cv-danger text-white text-[10px] font-bold tracking-wide">
                 {activePath.path_score >= 90 ? 'CRITICAL - P0 CHOKE POINT' : 'HIGH - P1 VECTOR'}
               </span>
               <span className="font-bold text-cv-text font-sans text-sm">
@@ -601,11 +471,11 @@ export default function AttackGraphPage() {
             <div className="flex flex-wrap items-center gap-1.5 text-xs text-cv-text">
               {activePath.nodes?.map((nodeId, idx) => (
                 <React.Fragment key={idx}>
-                  <span className="px-2 py-0.5 rounded bg-white border border-slate-300 font-semibold shadow-2xs">
-                    {nodeId === 'internet-0' ? '🌐 Internet Ingress' : nodeId.toUpperCase()}
+                  <span className="px-2.5 py-1 rounded bg-white border border-slate-300 font-semibold shadow-2xs text-[11px]">
+                    {nodeId === 'internet-0' ? '🌐 Internet Attacker' : nodeId.toUpperCase()}
                   </span>
                   {idx < activePath.nodes.length - 1 && (
-                    <ArrowRight className="w-3.5 h-3.5 text-cv-danger" />
+                    <ArrowRight className="w-4 h-4 text-cv-danger" />
                   )}
                 </React.Fragment>
               ))}
@@ -635,20 +505,24 @@ export default function AttackGraphPage() {
             )}
           </div>
         </div>
+      ) : (
+        <div className="p-6 rounded-lg bg-cv-bg border border-cv-border text-center font-mono text-xs text-cv-muted">
+          NO ATTACK PATHS DETECTED
+        </div>
       )}
 
-      {/* 3. Main 3-Column Layout: Paths List (Left) | Canvas (Center) | Node Inspection (Right) */}
+      {/* 3. Main 3-Column Grid: Exploit Routes (Left) | Hierarchical Canvas (Center) | Node Inspection (Right) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         
         {/* Left Column: Attack Paths Discovery Panel (3 Cols) */}
-        <div className="lg:col-span-3 cyber-card rounded-lg p-3 border-cv-border flex flex-col h-[650px]">
-          <div className="border-b border-cv-border pb-2.5 space-y-2">
+        <div className="lg:col-span-3 cyber-card rounded-lg p-3.5 border-cv-border flex flex-col h-[650px]">
+          <div className="border-b border-cv-border pb-3 space-y-2.5">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-sans font-bold text-cv-text flex items-center space-x-1.5 uppercase tracking-wide">
                 <Target className="w-3.5 h-3.5 text-cv-danger" />
                 <span>Exploit Routes ({filteredPaths.length})</span>
               </h3>
-              <span className="text-[10px] font-mono text-cv-muted">Sorted by Score</span>
+              <span className="text-[10px] font-mono text-cv-muted">Ranked by Score</span>
             </div>
 
             {/* Target Filter Select */}
@@ -665,8 +539,8 @@ export default function AttackGraphPage() {
             </select>
           </div>
 
-          {/* Scrollable Paths List */}
-          <div className="flex-1 overflow-y-auto space-y-2 pt-2 pr-1">
+          {/* Scrollable Attack Paths List */}
+          <div className="flex-1 overflow-y-auto space-y-2 pt-2.5 pr-1">
             {filteredPaths.map((p) => {
               const isSelected = p.path_id === selectedPathId;
               return (
@@ -675,7 +549,7 @@ export default function AttackGraphPage() {
                   onClick={() => handleSelectPath(p.path_id)}
                   className={`p-2.5 rounded-lg border cursor-pointer transition-all ${
                     isSelected
-                      ? 'bg-blue-50/80 border-cv-blue shadow-xs ring-1 ring-cv-blue/30'
+                      ? 'bg-blue-50/90 border-cv-blue shadow-xs ring-1 ring-cv-blue/40'
                       : 'bg-cv-bg border-cv-border hover:border-slate-300 hover:bg-slate-50/80'
                   }`}
                 >
@@ -716,48 +590,25 @@ export default function AttackGraphPage() {
           </div>
         </div>
 
-        {/* Center Column: Cytoscape Visual Canvas (6 Cols) */}
+        {/* Center Column: Hierarchical Graph Canvas (6 Cols) */}
         <div className="lg:col-span-6 cyber-card rounded-lg border-cv-border overflow-hidden relative flex flex-col h-[650px]">
           
-          {/* Floating Canvas Toolbar */}
-          <div className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-1.5 bg-white/95 p-1.5 rounded-lg border border-cv-border shadow-xs backdrop-blur-md font-mono text-xs">
-            <span className="text-cv-muted px-1.5 text-[10px] uppercase font-bold">Layout:</span>
+          {/* Top Canvas Controls Bar */}
+          <div className="absolute top-3 left-3 z-20 flex items-center space-x-2 bg-white/95 p-1.5 rounded-lg border border-cv-border shadow-xs backdrop-blur-md font-mono text-xs">
             <button
-              onClick={() => changeLayout('dagre')}
-              className={`px-2 py-1 rounded transition-colors ${
-                activeLayout === 'dagre'
-                  ? 'bg-cv-blue text-white font-bold'
-                  : 'text-cv-muted hover:text-cv-text'
-              }`}
-              title="Hierarchical directed attack progression (Recommended)"
+              onClick={handleFocusAttackPath}
+              className="flex items-center space-x-1 px-2.5 py-1 rounded bg-cv-blue text-white font-bold hover:bg-blue-700 transition-colors shadow-2xs"
+              title="Center and fit the selected attack path to viewport"
             >
-              Hierarchical
+              <Focus className="w-3.5 h-3.5" />
+              <span>FOCUS ATTACK PATH</span>
             </button>
-            <button
-              onClick={() => changeLayout('concentric')}
-              className={`px-2 py-1 rounded transition-colors ${
-                activeLayout === 'concentric'
-                  ? 'bg-cv-blue text-white font-bold'
-                  : 'text-cv-muted hover:text-cv-text'
-              }`}
-              title="Concentric security tier arrangement"
-            >
-              Concentric Tiers
-            </button>
-            <button
-              onClick={() => changeLayout('cola')}
-              className={`px-2 py-1 rounded transition-colors ${
-                activeLayout === 'cola'
-                  ? 'bg-cv-blue text-white font-bold'
-                  : 'text-cv-muted hover:text-cv-text'
-              }`}
-              title="Physics force-directed clustering"
-            >
-              Physics (Cola)
-            </button>
+            <span className="text-[10px] text-cv-muted px-1 font-semibold uppercase">
+              Hierarchical Directed Flow
+            </span>
           </div>
 
-          {/* Zoom / Viewport Controls */}
+          {/* Zoom / Viewport Navigation */}
           <div className="absolute top-3 right-3 z-20 flex items-center space-x-1 bg-white/95 p-1 rounded-lg border border-cv-border shadow-xs backdrop-blur-md">
             <button
               onClick={() => handleZoom(1.25)}
@@ -774,9 +625,9 @@ export default function AttackGraphPage() {
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
             <button
-              onClick={handleFit}
+              onClick={handleFocusAttackPath}
               className="p-1.5 text-cv-muted hover:text-cv-blue rounded hover:bg-cv-bg"
-              title="Fit Viewport"
+              title="Fit to Screen"
             >
               <Maximize2 className="w-3.5 h-3.5" />
             </button>
@@ -785,25 +636,25 @@ export default function AttackGraphPage() {
           {/* Visual Legend */}
           <div className="absolute bottom-3 left-3 z-20 hidden sm:flex items-center space-x-3 bg-white/95 px-3 py-1.5 rounded-lg border border-cv-border shadow-xs backdrop-blur-md font-mono text-[10px] text-cv-muted">
             <span className="flex items-center">
-              <span className="w-2.5 h-2.5 bg-blue-100 border border-blue-500 rounded mr-1" />
-              Internet Ingress
+              <span className="w-2.5 h-2.5 bg-blue-50 border border-blue-500 rounded mr-1" />
+              External Entry
             </span>
             <span className="flex items-center">
-              <span className="w-2.5 h-2.5 bg-blue-50 border border-blue-600 rounded mr-1" />
-              Intermediate Host
+              <span className="w-2.5 h-2.5 bg-blue-100 border border-blue-600 rounded mr-1" />
+              Lateral Hop
             </span>
             <span className="flex items-center">
               <span className="w-2.5 h-2.5 bg-red-100 border border-red-500 rounded mr-1" />
               Crown Jewel Target
             </span>
-            <span className="flex items-center">
-              <span className="w-2.5 h-2.5 bg-purple-100 border border-purple-600 rounded-full mr-1" />
-              Compromised User
+            <span className="flex items-center text-cv-danger font-semibold">
+              <span className="w-3 h-0.5 bg-red-600 mr-1 inline-block" />
+              Exploit Vector
             </span>
           </div>
 
-          {/* Cytoscape DOM Mount */}
-          <div ref={containerRef} id="cy-canvas" className="w-full h-full bg-cv-bg" />
+          {/* Cytoscape Mount Container */}
+          <div ref={containerRef} id="cy-hierarchical-canvas" className="w-full h-full bg-cv-bg" />
         </div>
 
         {/* Right Column: Node Inspection Drawer (3 Cols) */}
@@ -827,23 +678,23 @@ export default function AttackGraphPage() {
               <div className="space-y-3.5 font-mono text-xs mt-3">
                 <div>
                   <h4 className="text-sm font-bold text-cv-text font-sans leading-snug">
-                    {selectedNode.label || selectedNode.id}
+                    {selectedNode.cleanName || selectedNode.label}
                   </h4>
                   <p className="text-[10px] text-cv-blue mt-0.5">
-                    ID: {selectedNode.id} · Type: {selectedNode.type || 'Asset'}
+                    ID: {selectedNode.id} · Category: {selectedNode.category || 'Infrastructure'}
                   </p>
                 </div>
 
-                {/* Structured Metadata Table - Zero Blank Values */}
+                {/* Structured Metadata - Zero Blank Values */}
                 <div className="p-3 rounded-lg bg-cv-bg border border-cv-border space-y-2 text-[11px]">
                   <div className="flex justify-between">
                     <span className="text-cv-muted">Security Tier:</span>
                     <strong className="text-cv-text">
                       {selectedNode.environment
                         ? selectedNode.environment.toUpperCase()
-                        : selectedNode.isEntryNode || selectedNode.type === 'EntryZone'
+                        : selectedNode.isEntryNode
                         ? 'PERIMETER INGRESS'
-                        : selectedNode.isTargetNode || selectedNode.criticality === 'critical'
+                        : selectedNode.isTargetNode
                         ? 'TIER 1 (CROWN JEWEL)'
                         : 'INTERNAL HOST'}
                     </strong>
@@ -858,12 +709,11 @@ export default function AttackGraphPage() {
                           : 'text-cv-warning'
                       }
                     >
-                      {selectedNode.status ||
-                        (selectedNode.risk_score >= 80
-                          ? 'CRITICAL EXPOSURE'
-                          : selectedNode.risk_score >= 50
-                          ? 'ELEVATED RISK'
-                          : 'ACTIVE')}
+                      {selectedNode.isTargetNode || selectedNode.risk_score >= 80
+                        ? 'CRITICAL EXPOSURE'
+                        : selectedNode.risk_score >= 50
+                        ? 'ELEVATED RISK'
+                        : 'ACTIVE'}
                     </strong>
                   </div>
 
@@ -888,6 +738,15 @@ export default function AttackGraphPage() {
                   </div>
 
                   <div className="flex justify-between">
+                    <span className="text-cv-muted">Direct Business Value:</span>
+                    <strong className="text-cv-text">
+                      {selectedNode.business_value
+                        ? formatCurrency(Number(selectedNode.business_value) / 10000000)
+                        : 'Not available'}
+                    </strong>
+                  </div>
+
+                  <div className="flex justify-between">
                     <span className="text-cv-muted">Asset Risk Score:</span>
                     <strong className="text-cv-danger">
                       {selectedNode.risk_score
@@ -898,14 +757,14 @@ export default function AttackGraphPage() {
 
                   {selectedNode.cve_id && (
                     <div className="flex justify-between">
-                      <span className="text-cv-muted">Known Vulnerability:</span>
+                      <span className="text-cv-muted">Exploitable CVE:</span>
                       <strong className="text-cv-danger">{selectedNode.cve_id}</strong>
                     </div>
                   )}
 
                   {selectedNode.cvss_score && (
                     <div className="flex justify-between">
-                      <span className="text-cv-muted">CVSS Score:</span>
+                      <span className="text-cv-muted">CVSS Severity:</span>
                       <strong className="text-cv-warning">
                         {Number(selectedNode.cvss_score).toFixed(1)} / 10.0
                       </strong>
@@ -923,17 +782,13 @@ export default function AttackGraphPage() {
                       <span className="px-1.5 py-0.5 rounded bg-cv-bg border border-cv-border text-[10px] text-cv-muted">
                         {selectedNode.mitre_technique}
                       </span>
-                    ) : selectedNode.isEntryNode ? (
-                      <span className="px-1.5 py-0.5 rounded bg-cv-bg border border-cv-border text-[10px] text-cv-muted">
-                        T1190 Exploit Public-Facing App
-                      </span>
                     ) : (
                       <>
                         <span className="px-1.5 py-0.5 rounded bg-cv-bg border border-cv-border text-[10px] text-cv-muted">
-                          T1078 Valid Accounts
+                          T1190 Exploit Public-Facing App
                         </span>
                         <span className="px-1.5 py-0.5 rounded bg-cv-bg border border-cv-border text-[10px] text-cv-muted">
-                          T1021 Lateral Movement
+                          T1078 Valid Accounts
                         </span>
                       </>
                     )}
@@ -948,7 +803,7 @@ export default function AttackGraphPage() {
                       <span>DOWNSTREAM BLAST RADIUS</span>
                     </div>
                     <div className="text-[10px] text-cv-muted">
-                      Compromise impact from <strong className="text-cv-text">{selectedNode.label}</strong>:
+                      Impact propagation from <strong className="text-cv-text">{selectedNode.cleanName}</strong>:
                     </div>
                     <div className="flex justify-between text-[11px] pt-1 border-t border-amber-200">
                       <span className="text-cv-muted">Downstream Reach:</span>
