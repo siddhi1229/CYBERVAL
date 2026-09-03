@@ -1,8 +1,8 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class APIModel(BaseModel):
@@ -378,13 +378,29 @@ GraphAssetCorrelationRead = DigitalTwinAssetCorrelationRead
 
 
 class RecommendationRequest(BaseModel):
-    question: str = Field(min_length=1, max_length=2000)
+    question: str | None = None
+    query: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def resolve_question(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            q = data.get("question") or data.get("query")
+            if q:
+                data["question"] = q
+                data["query"] = q
+        return data
 
 
 class RecommendationRead(BaseModel):
     answer: str
-    source_risk_ids: list[int]
-    generated_at: datetime
+    source_risk_ids: list[int] = Field(default_factory=list)
+    supporting_assets: list[Any] = Field(default_factory=list)
+    supporting_risks: list[Any] = Field(default_factory=list)
+    supporting_attack_paths: list[Any] = Field(default_factory=list)
+    financial_metrics: dict[str, Any] = Field(default_factory=dict)
+    recommendations: list[Any] = Field(default_factory=list)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class SimulationRequest(BaseModel):

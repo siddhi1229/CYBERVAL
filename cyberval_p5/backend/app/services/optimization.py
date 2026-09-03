@@ -151,12 +151,12 @@ class InvestmentOptimizationService:
         # Aggregate portfolio metrics
         total_investment = sum(c.annual_cost for c in selected_controls)
         remaining_budget = max(0.0, total_budget - total_investment)
-        budget_utilization_pct = (total_investment / total_budget * 100.0) if total_budget > 0 else 0.0
+        budget_utilization_pct = min(100.0, max(0.0, (total_investment / total_budget * 100.0))) if total_budget > 0 else 0.0
 
         total_risk_reduction = sum(c.risk_reduction or 0.0 for c in selected_controls)
         residual_enterprise_eal = max(0.0, enterprise_baseline_eal - total_risk_reduction)
         overall_risk_reduction_pct = (
-            (total_risk_reduction / enterprise_baseline_eal * 100.0)
+            min(100.0, max(0.0, (total_risk_reduction / enterprise_baseline_eal * 100.0)))
             if enterprise_baseline_eal > 0
             else 0.0
         )
@@ -369,6 +369,7 @@ class InvestmentOptimizationService:
                     target_asset_or_risk=c.target_asset_or_risk,
                 )
 
+                reduc_val = float(c.risk_reduction) if c.risk_reduction is not None and c.risk_reduction > 0 else rosi_result.risk_reduction
                 ctrl = ControlOption(
                     id=c.id,
                     name=c.name,
@@ -377,7 +378,7 @@ class InvestmentOptimizationService:
                     target_asset_or_risk=c.target_asset_or_risk,
                     effectiveness=c.effectiveness,
                     baseline_eal=baseline_eal,
-                    risk_reduction=rosi_result.risk_reduction,
+                    risk_reduction=reduc_val,
                     rosi=rosi_result,
                     currency="INR",
                 )

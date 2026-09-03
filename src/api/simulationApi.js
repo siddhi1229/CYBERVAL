@@ -23,7 +23,10 @@ export const simulationApi = {
 
   calculateScenario: async (enabledControlIds = []) => {
     try {
-      const controls = await simulationApi.getControls();
+      const [controls, entRes] = await Promise.all([
+        simulationApi.getControls(),
+        apiClient.get('/risk/enterprise').catch(() => ({ data: {} })),
+      ]);
       let totalCost = 0;
       let totalReduction = 0;
       let scoreDelta = 0;
@@ -36,9 +39,13 @@ export const simulationApi = {
         }
       });
 
-      const baseRisk = 71;
-      const baseEal = 16.66;
-      const simulatedEal = Math.max(2.0, Number((baseEal - totalReduction).toFixed(1)));
+      const totalEalRaw = entRes.data?.total_expected_annual_loss;
+      const baseEal = totalEalRaw ? Number((totalEalRaw / 10000000).toFixed(2)) : 54.69;
+      const baseRisk = 74;
+      const baseExposure = Number((baseEal * 3.37).toFixed(1));
+      const baseP95 = Number((baseEal * 1.08).toFixed(1));
+
+      const simulatedEal = Math.max(2.0, Number((baseEal - totalReduction).toFixed(2)));
       const simulatedScore = Math.max(15, Math.min(100, baseRisk + scoreDelta));
       const rosi = totalCost > 0 ? Number((((totalReduction - totalCost) / totalCost) * 100).toFixed(1)) : 0;
 
@@ -46,14 +53,14 @@ export const simulationApi = {
         before: {
           riskScore: baseRisk,
           eal: baseEal,
-          financialExposure: 75.0,
-          p95Loss: 28.7,
+          financialExposure: baseExposure,
+          p95Loss: baseP95,
         },
         after: {
           riskScore: simulatedScore,
           eal: simulatedEal,
-          financialExposure: Number((75.0 - totalReduction * 2.5).toFixed(1)),
-          p95Loss: Number((28.7 - totalReduction * 1.6).toFixed(1)),
+          financialExposure: Number(Math.max(5.0, baseExposure - totalReduction * 2.5).toFixed(1)),
+          p95Loss: Number(Math.max(2.0, baseP95 - totalReduction * 1.6).toFixed(1)),
         },
         cost: Number(totalCost.toFixed(2)),
         reduction: Number(totalReduction.toFixed(2)),

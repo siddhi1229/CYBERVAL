@@ -690,10 +690,33 @@ def asset_risk(db: Session = Depends(get_db)):
     return db.scalars(select(Risk).order_by(Risk.expected_annual_loss.desc())).all()
 
 
+try:
+    from p4_ai_decision.api import P4APIService
+    p4_api_service = P4APIService()
+except Exception:
+    p4_api_service = None
+
+
 @router.post("/ai/recommend", response_model=RecommendationRead, summary="Request a risk-grounded recommendation")
 def recommend(request: RecommendationRequest, db: Session = Depends(get_db)):
+    prompt = request.question or request.query or "What is our highest financial cyber risk?"
+    if p4_api_service:
+        res = p4_api_service.handle_ai_query({"question": prompt})
+        return RecommendationRead(
+            answer=res.get("answer", "Risk intelligence retrieved."),
+            supporting_assets=res.get("supporting_assets", []),
+            supporting_risks=res.get("supporting_risks", []),
+            supporting_attack_paths=res.get("supporting_attack_paths", []),
+            financial_metrics=res.get("financial_metrics", {}),
+            recommendations=res.get("recommendations", []),
+            generated_at=datetime.now(UTC),
+        )
     risk = db.scalar(select(Risk).order_by(Risk.expected_annual_loss.desc()).limit(1))
-    return RecommendationRead(answer="Risk-grounded recommendation requires the decision-support module.", source_risk_ids=[risk.id] if risk else [], generated_at=datetime.now(UTC))
+    return RecommendationRead(
+        answer="Risk-grounded recommendation requires the decision-support module.",
+        source_risk_ids=[risk.id] if risk else [],
+        generated_at=datetime.now(UTC)
+    )
 
 
 @router.post("/ai/query", response_model=RecommendationRead, summary="Ask a risk-grounded question")

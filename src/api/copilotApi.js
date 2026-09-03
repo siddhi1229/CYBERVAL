@@ -19,12 +19,12 @@ export const copilotApi = {
           title: `CYBERVAL Risk Intelligence: "${query}"`,
           summary: data.answer,
           metrics: [
-            { label: "Expected Annual Loss", value: "₹16.66 Cr", badge: "Baseline EAL" },
+            { label: "Expected Annual Loss", value: "₹54.69 Cr", badge: "Baseline EAL" },
             { label: "Critical Assets at Risk", value: "Payment API (₹48 Cr)", badge: "Crown Jewel" },
-            { label: "Top Threat Vector", value: "Log4Shell + Credential Dumping", badge: "Active T1003" },
-            { label: "Optimized ROSI", value: "623.5%", badge: "P5 Knapsack" }
+            { label: "Top Threat Vector", value: "Fortinet Edge RCE + LSASS Dumping", badge: "Active T1003" },
+            { label: "Optimized ROSI", value: "221.5%", badge: "P5 Knapsack" }
           ],
-          recommendedAction: "Deploy INV-001 (Privileged Access MFA) and INV-002 (Critical Patching Sprint) to optimize financial risk reduction with maximum portfolio ROSI.",
+          recommendedAction: "Deploy INV-002 (Critical Patching Sprint) and INV-004 (Advanced EDR Memory Protection) to optimize financial risk reduction with maximum portfolio ROSI (221.5%).",
           deepLinks: [
             { label: "Executive Dashboard", path: "/executive" },
             { label: "Simulate Controls in What-If", path: "/simulation" },
