@@ -1,8 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 import {
   FileText,
   Download,
   Printer,
+  Loader2,
   ShieldAlert,
   ShieldCheck,
   DollarSign,
@@ -28,6 +31,8 @@ export default function ReportsPage() {
   const [complianceData, setComplianceData] = useState(null);
   const [investmentData, setInvestmentData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const reportRef = useRef(null);
 
   useEffect(() => {
     async function loadReportData() {
@@ -49,6 +54,55 @@ export default function ReportsPage() {
     }
     loadReportData();
   }, [refreshKey]);
+
+  const handleExportPdf = async () => {
+    if (!reportRef.current || exportingPdf) return;
+    try {
+      setExportingPdf(true);
+      const element = reportRef.current;
+
+      // High-resolution canvas rendering
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        windowWidth: element.scrollWidth,
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
+
+      const imgWidth = 210; // A4 width in mm
+      const pageHeight = 297; // A4 height in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      // Add first page
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
+      heightLeft -= pageHeight;
+
+      // Add subsequent pages if the report height exceeds one A4 page
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
+        heightLeft -= pageHeight;
+      }
+
+      const dateStr = new Date().toISOString().split('T')[0];
+      pdf.save(`CYBERVAL_Executive_Risk_Report_${dateStr}.pdf`);
+    } catch (err) {
+      console.error('Failed to export PDF:', err);
+    } finally {
+      setExportingPdf(false);
+    }
+  };
 
   if (loading) return <LoadingSpinner text="Generating Executive Board Briefing & Compliance Evidence Report..." />;
 
@@ -73,19 +127,48 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        <div className="flex items-center space-x-3 font-mono text-xs">
+        {/* Separated Action Controls: Print & Export as PDF */}
+        <div className="flex items-center space-x-2.5 font-mono text-xs">
+          {/* 1. Print Report Button */}
           <button
+            type="button"
             onClick={() => window.print()}
-            className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-cv-blue text-white font-bold hover:bg-blue-700 transition-all shadow-sm"
+            className="flex items-center space-x-1.5 px-3.5 py-2 rounded-lg bg-white hover:bg-slate-50 text-cv-text border border-cv-border font-semibold transition-all shadow-2xs"
+            title="Open browser print dialog"
           >
-            <Printer className="w-4 h-4" />
-            <span>PRINT / EXPORT PDF</span>
+            <Printer className="w-4 h-4 text-slate-600" />
+            <span>Print Report</span>
+          </button>
+
+          {/* 2. Export as PDF Button */}
+          <button
+            type="button"
+            onClick={handleExportPdf}
+            disabled={exportingPdf}
+            className="flex items-center space-x-1.5 px-4 py-2 rounded-lg bg-cv-blue hover:bg-blue-700 text-white font-bold transition-all shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+            title="Download report directly as PDF"
+          >
+            {exportingPdf ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-white" />
+                <span>Generating PDF...</span>
+              </>
+            ) : (
+              <>
+                <Download className="w-4 h-4 text-white" />
+                <span>Export as PDF</span>
+              </>
+            )}
           </button>
         </div>
       </div>
 
-      {/* Main Printable Document Container */}
-      <div className="p-8 sm:p-10 rounded-xl cyber-card border-cv-border bg-white space-y-8 font-mono text-xs text-cv-text print:bg-white print:text-black print:border-none print:shadow-none">
+      {/* Main Printable / Exportable Document Container */}
+      <div
+        ref={reportRef}
+        id="cyberval-report-document"
+        className="p-8 sm:p-10 rounded-xl cyber-card border-cv-border bg-white space-y-8 font-mono text-xs text-cv-text print:bg-white print:text-black print:border-none print:shadow-none"
+      >
         
         {/* Document Header */}
         <div className="border-b border-cv-border pb-6 print:border-black flex flex-col md:flex-row md:items-start justify-between gap-4">
